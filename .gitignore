@@ -1,0 +1,66 @@
+# SElf - Gitignore for Railway
+
+# Session files - VERY IMPORTANT to ignore but keep on Railway volume
+*.session
+*.session-journal
+*.session-shm
+*.session-wal
+
+# Data - user data, but keep structure
+data/*
+!data/.gitkeep
+!data/action
+data/action/*
+!data/action/.gitkeep
+
+# Downloads
+downloads/*
+!downloads/.gitkeep
+
+# Logs
+logs/*
+!logs/.gitkeep
+
+# Env
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Railway
+.railway/
+
+# Temp backups
+*.zip
+temp_*
+my_account.*
+
+# Keep important files
+!requirements.txt
+!*.py
+!templates/
+!Dockerfile
+!start.sh
+!README.md
