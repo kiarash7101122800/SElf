@@ -2,6 +2,7 @@ import asyncio
 import hmac
 import json
 import os
+import secrets
 import signal
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 AUTO_START = os.getenv("AUTO_START_BOT", "true").lower() not in {"0", "false", "no", "off"}
 REQUIRED_RUNTIME_VARS = ("API_ID", "API_HASH", "OWNER_ID", "SESSION_STRING", "ADMIN_PASSWORD")
 MAX_LOG_BYTES = 5 * 1024 * 1024
+MAX_BATCH_TARGETS = 50
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -30,6 +32,8 @@ bot_process: asyncio.subprocess.Process | None = None
 supervisor_task: asyncio.Task | None = None
 started_at = time.time()
 login_failures: dict[str, tuple[int, float]] = {}
+active_sessions: dict[str, float] = {}
+SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 
 HTML = r"""<!doctype html>
 <html lang="fa" dir="rtl">
@@ -122,12 +126,13 @@ def is_authenticated(request: Request) -> bool:
     if not ADMIN_PASSWORD:
         return False
     token = request.cookies.get("self_admin")
-    expected = hmac.new(
-        ADMIN_PASSWORD.encode(),
-        b"self-admin-session",
-        "sha256",
-    ).hexdigest()
-    return bool(token and hmac.compare_digest(token, expected))
+    if not token:
+        return False
+    expires_at = active_sessions.get(token, 0)
+    if expires_at <= time.time():
+        active_sessions.pop(token, None)
+        return False
+    return True
 
 
 def require_auth(request: Request) -> None:
@@ -256,11 +261,9 @@ async def login(request: Request):
         return JSONResponse({"ok": False, "error": "Wrong password"}, status_code=401)
 
     login_failures.pop(ip, None)
-    token = hmac.new(
-        ADMIN_PASSWORD.encode(),
-        b"self-admin-session",
-        "sha256",
-    ).hexdigest()
+    token = secrets.token_urlsafe(32)
+    active_sessions[token] = time.time() + SESSION_TTL_SECONDS
+
     response = JSONResponse({"ok": True})
     response.set_cookie(
         "self_admin", token,
@@ -274,7 +277,10 @@ async def login(request: Request):
 
 
 @app.post("/api/logout")
-async def logout():
+async def logout(request: Request):
+    token = request.cookies.get("self_admin")
+    if token:
+        active_sessions.pop(token, None)
     response = JSONResponse({"ok": True})
     response.delete_cookie("self_admin", path="/")
     return response
@@ -322,6 +328,7 @@ async def api_send(request: Request):
     chat_ids = body.get("chat_ids") or []
     if isinstance(chat_ids, str):
         chat_ids = [chat_ids]
+    chat_ids = [item for item in chat_ids if str(item).strip()][:MAX_BATCH_TARGETS]
     text = str(body.get("text", "")).strip()
     if not chat_ids or not text:
         return JSONResponse({"ok": False, "error": "chat_ids and text are required"}, status_code=400)
@@ -337,6 +344,7 @@ async def api_block(request: Request):
     ids = body.get("chat_ids") or []
     if isinstance(ids, str):
         ids = [ids]
+    ids = [item for item in ids if str(item).strip()][:MAX_BATCH_TARGETS]
     return await control({"op": "block", "chat_id": ids})
 
 
@@ -347,6 +355,7 @@ async def api_unblock(request: Request):
     ids = body.get("chat_ids") or []
     if isinstance(ids, str):
         ids = [ids]
+    ids = [item for item in ids if str(item).strip()][:MAX_BATCH_TARGETS]
     return await control({"op": "unblock", "chat_id": ids})
 
 
