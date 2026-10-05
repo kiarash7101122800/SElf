@@ -164,6 +164,8 @@ export class SelfContainer extends DurableObject<Env> {
   }
 
   async restart(): Promise<void> {
+    const container = this.ctx.container;
+    if (!container) throw new Error("Cloudflare Container binding is unavailable");
     if (container.running) {
       await container.signal(15);
       await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -187,7 +189,7 @@ export class SelfContainer extends DurableObject<Env> {
       url.host = "container";
 
       const forwarded = new Request(url.toString(), request);
-      const response = await this.ctx.container
+      const response = await container
         .getTcpPort(8080)
         .fetch(forwarded);
 
