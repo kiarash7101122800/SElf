@@ -3107,6 +3107,7 @@ class FeatureEngine:
         return ".bin"
 
     async def cache_incoming_for_anti_delete(self, event) -> None:
+        """Archive incoming content locally first; cloud migration is asynchronous."""
         settings = self.settings()
         if settings.get("anti_delete_enabled") != "on":
             return
@@ -3117,9 +3118,6 @@ class FeatureEngine:
         message = event.message
         if isinstance(message, types.MessageService):
             return
-        # Self-destructing media is deliberately kept outside the ordinary
-        # anti-delete cache.  The legacy timed-photo feature remains isolated
-        # in self_bot.py.
         if self.timed_media_ttl(message) is not None:
             return
         if event.is_private:
@@ -3164,30 +3162,44 @@ class FeatureEngine:
         message_text = (getattr(event, "raw_text", "") or "").strip()
         media_description = self.anti_delete_media_description(message)
         if media_description and media_description not in message_text:
-            message_text = (
-                f"{message_text}\n\n{media_description}".strip()
-            )
+            message_text = f"{message_text}\n\n{media_description}".strip()
         file_info = getattr(message, "file", None)
         media_name = str(getattr(file_info, "name", "") or "")
         media_size = int(getattr(file_info, "size", 0) or 0)
-        cloud_reference = ""
+        local_reference = ""
+
         try:
             max_mb = max(1, min(int(settings.get("anti_delete_max_mb", "50")), 100))
         except (TypeError, ValueError):
             max_mb = 50
-        if not media_size or media_size <= max_mb * 1024 * 1024:
+        max_bytes = max_mb * 1024 * 1024
+
+        is_media = media_type != "متن"
+        if is_media and (not media_size or media_size <= max_bytes):
             try:
-                cloud_reference = await self.save_message_to_cloud(
+                self.anti_delete_dir.mkdir(parents=True, exist_ok=True)
+                suffix = self.anti_delete_file_suffix(message)
+                local_path = self.anti_delete_dir / f"{chat_id}_{message_id}{suffix}"
+                downloaded = await self.client.download_media(
                     message,
-                    caption=(
-                        f"🛡 آرشیو ضدحذف\n👤 {sender_name}\n💬 {chat_title}"
-                    ),
+                    file=str(local_path),
                 )
+                resolved = Path(str(downloaded or local_path))
+                if resolved.is_file() and resolved.stat().st_size <= max_bytes:
+                    local_reference = str(resolved)
+                elif local_path.is_file() and local_path.stat().st_size <= max_bytes:
+                    local_reference = str(local_path)
+                else:
+                    try:
+                        resolved.unlink(missing_ok=True)
+                    except OSError:
+                        pass
             except Exception as exc:
                 print(
-                    f"خطا در ذخیره ابری ضدحذف برای {self.phone}: "
+                    f"خطا در ذخیره محلی ضدحذف برای {self.phone}: "
                     f"{type(exc).__name__}"
                 )
+
         archive_message(
             self.data_dir,
             self.phone,
@@ -3198,7 +3210,7 @@ class FeatureEngine:
             chat_title=chat_title,
             message_text=message_text,
             media_type=media_type,
-            media_path=cloud_reference,
+            media_path=local_reference,
             media_name=media_name,
             media_size=media_size,
         )
