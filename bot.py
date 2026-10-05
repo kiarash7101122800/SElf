@@ -34,18 +34,20 @@ api_hash = _required_env("API_HASH")
 
 _session_name = os.getenv("SESSION_NAME", "my_account").strip() or "my_account"
 _session_string = os.getenv("SESSION_STRING", "").strip()
+if not _session_string:
+    raise RuntimeError("SESSION_STRING is required for unattended Cloudflare startup")
 
-_client_kwargs = {
-    "api_id": api_id,
-    "api_hash": api_hash,
-}
-if _session_string:
-    _client_kwargs["session_string"] = _session_string
+bot = Client(
+    _session_name,
+    api_id=api_id,
+    api_hash=api_hash,
+    session_string=_session_string,
+)
 
-bot = Client(_session_name, **_client_kwargs)
-
-_owner_raw = os.getenv("OWNER_ID", "me").strip() or "me"
-admin = int(_owner_raw) if _owner_raw.isdigit() else _owner_raw
+_owner_raw = _required_env("OWNER_ID")
+if not _owner_raw.isdigit():
+    raise RuntimeError("OWNER_ID must be numeric")
+admin = int(_owner_raw)
 
 fonts = {
     'Font1' : { '0': '𝟎','1': '𝟏','2': '𝟐','3': '𝟑','4': '𝟒','5': '𝟓','6': '𝟔','7': '𝟕','8': '𝟖','9': '𝟗' },
