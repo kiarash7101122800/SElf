@@ -3281,7 +3281,8 @@ class FeatureEngine:
         chat_title = str(row.get("chat_title") or row.get("chat_id") or "نامشخص")
         message_text = str(row.get("message_text") or "").strip()
         created_at = str(row.get("created_at") or "نامشخص")
-        cloud_id = self._cloud_message_id(str(row.get("media_path") or ""))
+        media_reference = str(row.get("media_path") or "").strip()
+        cloud_id = self._cloud_message_id(media_reference)
         body = (
             "🗑 پیام حذف‌شده شناسایی شد\n"
             f"👤 فرستنده: {sender_name}\n"
@@ -3290,6 +3291,31 @@ class FeatureEngine:
             f"📦 نوع: {media_type}\n"
             f"🕒 دریافت: {created_at}"
         )
+
+        # New archives keep media on local disk until the background cloud
+        # migration completes. Prefer sending that real file when it exists.
+        local_media = None
+        if media_reference and not media_reference.startswith(("tg:", "botfile:")):
+            candidate = Path(media_reference)
+            try:
+                if candidate.is_file():
+                    local_media = candidate
+            except OSError:
+                local_media = None
+
+        if local_media is not None:
+            if message_text:
+                body += f"\n\n📝 متن:\n{message_text}"
+            await self.queued_send_file(
+                "me",
+                str(local_media),
+                caption=body[:1024],
+                priority=70,
+                parse_mode=None,
+                silent=True,
+            )
+            return True
+
         if cloud_id:
             body += f"\n☁️ نسخه کامل قبلاً در Saved Messages ذخیره شد (پیام {cloud_id})."
         elif media_type != "متن":
