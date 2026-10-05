@@ -10,10 +10,15 @@
 - **GitHub + Workers Builds** برای Deploy خودکار
 - **Custom Domain:** `https://self.kiarash.cfd`
 - **بدون polling خودکار در پنل** برای کم کردن مصرف request
+- پنل بدون React/Vue/Next و بدون asset خارجی
+- اجرای مستقیم `bot.py`؛ بدون runtime source patch
 
 > اجرای دائم Pyrogram در Worker معمولی انجام نمی‌شود؛ خود Telegram client داخل Container اجرا می‌شود. Containers روی Workers Paid هستند.
 
 ## متغیرهای Runtime
+
+**اطلاعات حساس را داخل GitHub قرار ندهید. حتی اگر Repository را Private کنید.**  
+`SESSION_STRING`، `API_HASH` و `ADMIN_PASSWORD` باید فقط در Cloudflare Secrets قرار بگیرند. ریپوی Private برای کد عالی است، اما جای Secret Store نیست.
 
 در Cloudflare Workers & Pages → سرویس → Settings → Variables & Secrets این موارد را به‌صورت Secret اضافه کنید:
 
@@ -90,4 +95,4 @@ Container filesystem به‌صورت پیش‌فرض موقت است. برای �
 
 ## توجه
 
-برای اجرای واقعی این معماری، **Workers Paid** و قابلیت **Cloudflare Containers** لازم است.
+برای اجرای واقعی این معماری، **Workers Paid** و قابلیت **Cloudflare Containers** لازم است. این نسخه برای اجرای سریع‌تر Bot، Instance نوع `standard-2` را انتخاب می‌کند.
