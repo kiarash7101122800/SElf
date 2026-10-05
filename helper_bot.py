@@ -2337,6 +2337,14 @@ class HelperPanelBot:
                             style="primary",
                         ),
                     ],
+                    [
+                        glass_button(
+                            "❓ Options guide" if english else "❓ توضیح گزینه‌ها",
+                            owner_id,
+                            "option_guide",
+                            style="primary",
+                        ),
+                    ],
                 ]
             )
             return text, keyboard
