@@ -1,0 +1,52 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "self-cloudflare",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1
+  },
+
+  "routes": [
+    {
+      "pattern": "self.kiarash.cfd",
+      "custom_domain": true
+    }
+  ],
+
+  "triggers": {
+    "crons": ["0 * * * *"]
+  },
+
+  "containers": [
+    {
+      "class_name": "SelfContainer",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "base": {
+          "dockerfile": "./Dockerfile"
+        }
+      }
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SELF_CONTAINER",
+        "class_name": "SelfContainer"
+      }
+    ]
+  },
+
+  "exports": {
+    "SelfContainer": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}
