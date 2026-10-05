@@ -11,7 +11,7 @@ interface Env {
   AUTO_START_BOT?: string;
 }
 
-const INACTIVITY_MS = 5 * 60 * 60 * 1000;
+const INACTIVITY_MS = 6 * 60 * 60 * 1000;
 const SNAPSHOT_EVERY_MS = 24 * 60 * 60 * 1000;
 const ALARM_EVERY_MS = 60 * 60 * 1000;
 
