@@ -12,7 +12,6 @@ interface Env {
 }
 
 const INACTIVITY_MS = 5 * 60 * 60 * 1000;
-const WARM_EVERY_MS = 60 * 60 * 1000;
 const SNAPSHOT_EVERY_MS = 24 * 60 * 60 * 1000;
 
 function securityHeaders(headers = new Headers()): Headers {
@@ -39,7 +38,7 @@ export class SelfContainer extends DurableObject<Env> {
   }
 
   private envVars(): Record<string, string> {
-    const vars: Record<string, string> = {
+    return {
       API_ID: this.env.API_ID || "",
       API_HASH: this.env.API_HASH || "",
       OWNER_ID: this.env.OWNER_ID || "",
@@ -51,8 +50,6 @@ export class SelfContainer extends DurableObject<Env> {
       CONTROL_PORT: "8765",
       PORT: "8080",
     };
-
-    return vars;
   }
 
   private async startAndWait(): Promise<void> {
@@ -101,11 +98,13 @@ export class SelfContainer extends DurableObject<Env> {
           { signal: AbortSignal.timeout(1000) },
         );
         await response.body?.cancel();
+
         if (response.ok) return;
         lastError = new Error(`Container health returned ${response.status}`);
       } catch (error) {
         lastError = error;
       }
+
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
@@ -131,7 +130,18 @@ export class SelfContainer extends DurableObject<Env> {
       });
 
     await response.body?.cancel();
-    this.ctx.container.setInactivityTimeout(INACTIVITY_MS);
+    await this.ctx.container.setInactivityTimeout(INACTIVITY_MS);
+  }
+
+  async maintain(): Promise<void> {
+    await this.warm();
+
+    const now = Date.now();
+    const savedAt = await this.ctx.storage.get<number>("snapshotSavedAt");
+
+    if (!savedAt || now - savedAt >= SNAPSHOT_EVERY_MS) {
+      await this.saveSnapshot();
+    }
   }
 
   async saveSnapshot(): Promise<void> {
@@ -164,6 +174,7 @@ export class SelfContainer extends DurableObject<Env> {
 
     try {
       await this.ensureStarted();
+
       const url = new URL(request.url);
       url.protocol = "http:";
       url.host = "container";
@@ -183,12 +194,18 @@ export class SelfContainer extends DurableObject<Env> {
       });
     } catch (error) {
       console.error("container request failed", error);
+
       return new Response(
-        JSON.stringify({ ok: false, error: "Container is temporarily unavailable" }),
+        JSON.stringify({
+          ok: false,
+          error: "Container is temporarily unavailable",
+        }),
         {
           status: 503,
           headers: securityHeaders(
-            new Headers({ "Content-Type": "application/json; charset=utf-8" }),
+            new Headers({
+              "Content-Type": "application/json; charset=utf-8",
+            }),
           ),
         },
       );
@@ -202,11 +219,17 @@ export default {
 
     if (url.pathname === "/edge-health") {
       return new Response(
-        JSON.stringify({ ok: true, edge: "cloudflare", service: "self-cloudflare" }),
+        JSON.stringify({
+          ok: true,
+          edge: "cloudflare",
+          service: "self-cloudflare",
+        }),
         {
           status: 200,
           headers: securityHeaders(
-            new Headers({ "Content-Type": "application/json; charset=utf-8" }),
+            new Headers({
+              "Content-Type": "application/json; charset=utf-8",
+            }),
           ),
         },
       );
@@ -216,15 +239,6 @@ export default {
   },
 
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
-    const stub = env.SELF_CONTAINER.getByName("main");
-    await stub.warm();
-
-    const now = Date.now();
-    const savedAt = await stub.ctx.storage.get<number>("snapshotSavedAt").catch(() => undefined);
-    if (!savedAt || now - savedAt >= SNAPSHOT_EVERY_MS) {
-      await stub.saveSnapshot();
-    }
-
-    await stub.ctx.storage.setAlarm(now + WARM_EVERY_MS);
+    await env.SELF_CONTAINER.getByName("main").maintain();
   },
 } satisfies ExportedHandler<Env>;
