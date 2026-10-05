@@ -13,6 +13,7 @@ interface Env {
 
 const INACTIVITY_MS = 5 * 60 * 60 * 1000;
 const SNAPSHOT_EVERY_MS = 24 * 60 * 60 * 1000;
+const ALARM_EVERY_MS = 60 * 60 * 1000;
 
 function securityHeaders(headers = new Headers()): Headers {
   headers.set("X-Content-Type-Options", "nosniff");
@@ -102,7 +103,10 @@ export class SelfContainer extends DurableObject<Env> {
         );
         await response.body?.cancel();
 
-        if (response.ok) return;
+        if (response.ok) {
+          await this.ctx.storage.setAlarm(Date.now() + ALARM_EVERY_MS);
+          return;
+        }
         lastError = new Error(`Container health returned ${response.status}`);
       } catch (error) {
         lastError = error;
@@ -136,6 +140,7 @@ export class SelfContainer extends DurableObject<Env> {
 
     await response.body?.cancel();
     await container.setInactivityTimeout(INACTIVITY_MS);
+    await this.ctx.storage.setAlarm(Date.now() + ALARM_EVERY_MS);
   }
 
   async maintain(): Promise<void> {
@@ -146,6 +151,16 @@ export class SelfContainer extends DurableObject<Env> {
 
     if (!savedAt || now - savedAt >= SNAPSHOT_EVERY_MS) {
       await this.saveSnapshot();
+    }
+    await this.ctx.storage.setAlarm(Date.now() + ALARM_EVERY_MS);
+  }
+
+  async alarm(): Promise<void> {
+    try {
+      await this.maintain();
+    } catch (error) {
+      console.error("container maintenance alarm failed", error);
+      await this.ctx.storage.setAlarm(Date.now() + ALARM_EVERY_MS);
     }
   }
 
