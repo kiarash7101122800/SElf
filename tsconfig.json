@@ -6,8 +6,7 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "lib": ["ES2022", "WebWorker"],
-    "types": ["@cloudflare/workers-types"]
+    "lib": ["ES2022", "WebWorker"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["worker-configuration.d.ts", "src/**/*.ts"]
 }
