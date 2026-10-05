@@ -878,12 +878,17 @@ class TelegramAuthBot(AdminPanelMixin):
                 )
 
     def phone_owner(self, phone: str) -> int | None:
-        with db_connect(USERS_DB, timeout=10) as conn:
-            row = conn.execute(
-                """SELECT user_id FROM users
-                   WHERE phone = ? LIMIT 1""",
-                (str(phone),),
-            ).fetchone()
+        try:
+            with db_connect(USERS_DB, timeout=10) as conn:
+                row = conn.execute(
+                    """SELECT user_id FROM users
+                       WHERE phone = ? LIMIT 1""",
+                    (str(phone),),
+                ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return None
+            raise
         return int(row[0]) if row else None
 
     def reserve_activation_cost(
