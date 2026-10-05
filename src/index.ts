@@ -27,6 +27,13 @@ function securityHeaders(headers = new Headers()): Headers {
 export class SelfContainer extends DurableObject<Env> {
   private startPromise?: Promise<void>;
 
+  private get container() {
+    if (!this.container) {
+      throw new Error("Cloudflare Container binding is unavailable");
+    }
+    return this.container;
+  }
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
 
@@ -53,8 +60,8 @@ export class SelfContainer extends DurableObject<Env> {
   }
 
   private async startAndWait(): Promise<void> {
-    if (this.ctx.container.running) {
-      await this.ctx.container.setInactivityTimeout(INACTIVITY_MS);
+    if (this.container.running) {
+      await this.container.setInactivityTimeout(INACTIVITY_MS);
       return;
     }
 
@@ -62,7 +69,7 @@ export class SelfContainer extends DurableObject<Env> {
 
     if (snapshot?.id) {
       try {
-        this.ctx.container.start({
+        this.container.start({
           containerSnapshot: snapshot,
           enableInternet: true,
           instance: "standard-1",
@@ -70,25 +77,25 @@ export class SelfContainer extends DurableObject<Env> {
         });
       } catch {
         await this.ctx.storage.delete("snapshot");
-        this.ctx.container.start({
-          image: this.ctx.container.images.base,
+        this.container.start({
+          image: this.container.images.base,
           enableInternet: true,
           instance: "standard-1",
           env: this.envVars(),
         });
       }
     } else {
-      this.ctx.container.start({
-        image: this.ctx.container.images.base,
+      this.container.start({
+        image: this.container.images.base,
         enableInternet: true,
         instance: "standard-1",
         env: this.envVars(),
       });
     }
 
-    await this.ctx.container.setInactivityTimeout(INACTIVITY_MS);
+    await this.container.setInactivityTimeout(INACTIVITY_MS);
 
-    const port = this.ctx.container.getTcpPort(8080);
+    const port = this.container.getTcpPort(8080);
     let lastError: unknown;
 
     for (let attempt = 0; attempt < 90; attempt += 1) {
@@ -123,14 +130,14 @@ export class SelfContainer extends DurableObject<Env> {
   async warm(): Promise<void> {
     await this.ensureStarted();
 
-    const response = await this.ctx.container
+    const response = await this.container
       .getTcpPort(8080)
       .fetch("http://container/health", {
         signal: AbortSignal.timeout(3000),
       });
 
     await response.body?.cancel();
-    await this.ctx.container.setInactivityTimeout(INACTIVITY_MS);
+    await this.container.setInactivityTimeout(INACTIVITY_MS);
   }
 
   async maintain(): Promise<void> {
@@ -145,10 +152,10 @@ export class SelfContainer extends DurableObject<Env> {
   }
 
   async saveSnapshot(): Promise<void> {
-    if (!this.ctx.container.running) return;
+    if (!this.container.running) return;
 
     try {
-      const snapshot = await this.ctx.container.snapshotContainer({
+      const snapshot = await this.container.snapshotContainer({
         name: "self-runtime",
       });
       await this.ctx.storage.put("snapshot", snapshot);
@@ -159,8 +166,8 @@ export class SelfContainer extends DurableObject<Env> {
   }
 
   async restart(): Promise<void> {
-    if (this.ctx.container.running) {
-      await this.ctx.container.signal(15);
+    if (this.container.running) {
+      await this.container.signal(15);
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
     await this.ctx.storage.delete("snapshot");
@@ -180,7 +187,7 @@ export class SelfContainer extends DurableObject<Env> {
       url.host = "container";
 
       const forwarded = new Request(url.toString(), request);
-      const response = await this.ctx.container
+      const response = await this.container
         .getTcpPort(8080)
         .fetch(forwarded);
 
