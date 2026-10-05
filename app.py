@@ -104,7 +104,18 @@ async function login(){try{await api('/api/login',{method:'POST',body:JSON.strin
 async function action(path){try{alert(JSON.stringify(await api(path,{method:'POST'}),null,2));loadStatus()}catch(e){alert(e.message)}}
 async function sendMessage(){const ids=[$('target').value,$('target2').value].filter(Boolean).join(',');const list=ids.split(',').map(s=>s.trim()).filter(Boolean);try{alert(JSON.stringify(await api('/api/send',{method:'POST',body:JSON.stringify({chat_ids:list,text:$('message').value})}),null,2))}catch(e){alert(e.message)}}
 async function userAction(path){const id=$('userId').value.trim();if(!id)return;try{alert(JSON.stringify(await api(path,{method:'POST',body:JSON.stringify({chat_ids:id.split(',').map(x=>x.trim()).filter(Boolean)})}),null,2))}catch(e){alert(e.message)}}
-async function loadStatus(){try{const d=await api('/api/status');$('status').innerHTML=d.bot_running?'<span class="ok">● Bot is running</span>':'<span class="bad">● Bot is stopped</span>'; }catch(e){}}
+async function loadStatus(){
+  try{
+    const d=await api('/api/status');
+    const botState=d.bot_running
+      ? '<span class="ok">● Bot is running</span>'
+      : '<span class="bad">● Bot is stopped</span>';
+    const cfg=d.runtime_ready
+      ? '<div class="muted">Configuration: OK</div>'
+      : '<div class="bad">Missing: '+(d.missing_variables||[]).join(', ')+'</div>';
+    $('status').innerHTML=botState+cfg;
+  }catch(e){}
+}
 async function loadLogs(){try{$('logs').textContent=(await api('/api/logs?lines=120')).logs||''}catch(e){$('logs').textContent=e.message}}
 async function logout(){try{await api('/api/logout',{method:'POST'})}finally{showLogin()}}
 showLogin();
@@ -142,10 +153,13 @@ def require_auth(request: Request) -> None:
 
 
 async def control(command: dict[str, Any]) -> dict[str, Any]:
-    reader, writer = await asyncio.open_connection(CONTROL_HOST, CONTROL_PORT)
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(CONTROL_HOST, CONTROL_PORT),
+        timeout=5,
+    )
     writer.write((json.dumps(command, ensure_ascii=False) + "\n").encode("utf-8"))
     await writer.drain()
-    raw = await reader.readline()
+    raw = await asyncio.wait_for(reader.readline(), timeout=15)
     writer.close()
     try:
         await writer.wait_closed()
@@ -305,7 +319,8 @@ async def status(request: Request):
 @app.post("/api/start")
 async def api_start(request: Request):
     require_auth(request)
-    return await start_bot_async()
+    result = await start_bot_async()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
 
 @app.post("/api/stop")
@@ -318,7 +333,8 @@ async def api_stop(request: Request):
 async def api_restart(request: Request):
     require_auth(request)
     await stop_bot()
-    return await start_bot_async()
+    result = await start_bot_async()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
 
 @app.post("/api/send")
