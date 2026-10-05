@@ -1,15 +1,13 @@
 import asyncio
-import hmac
 import json
 import os
 import secrets
-import signal
 import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
 
 
@@ -153,19 +151,26 @@ def require_auth(request: Request) -> None:
 
 
 async def control(command: dict[str, Any]) -> dict[str, Any]:
-    reader, writer = await asyncio.wait_for(
-        asyncio.open_connection(CONTROL_HOST, CONTROL_PORT),
-        timeout=5,
-    )
-    writer.write((json.dumps(command, ensure_ascii=False) + "\n").encode("utf-8"))
-    await writer.drain()
-    raw = await asyncio.wait_for(reader.readline(), timeout=15)
-    writer.close()
     try:
-        await writer.wait_closed()
-    except Exception:
-        pass
-    return json.loads(raw.decode("utf-8"))
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(CONTROL_HOST, CONTROL_PORT),
+            timeout=5,
+        )
+        writer.write((json.dumps(command, ensure_ascii=False) + "\n").encode("utf-8"))
+        await writer.drain()
+        raw = await asyncio.wait_for(reader.readline(), timeout=15)
+    except (asyncio.TimeoutError, ConnectionError, OSError) as exc:
+        raise HTTPException(status_code=503, detail="Bot control channel unavailable") from exc
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=503, detail="Invalid bot control response") from exc
 
 
 async def start_bot_async() -> dict[str, Any]:
