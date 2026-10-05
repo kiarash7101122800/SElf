@@ -16,3 +16,7 @@ jobs:
       - run: npm install
       - run: npx wrangler types
       - run: npx tsc --noEmit
+      - name: Compile Python runtime
+        run: python -m py_compile app.py bot.py bot_runner.py reloads.py
+      - name: Build Cloudflare Container image
+        run: docker build --platform linux/amd64 -t self-cloudflare:test .
