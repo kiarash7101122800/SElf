@@ -151,6 +151,7 @@ def require_auth(request: Request) -> None:
 
 
 async def control(command: dict[str, Any]) -> dict[str, Any]:
+    writer = None
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(CONTROL_HOST, CONTROL_PORT),
@@ -162,11 +163,12 @@ async def control(command: dict[str, Any]) -> dict[str, Any]:
     except (asyncio.TimeoutError, ConnectionError, OSError) as exc:
         raise HTTPException(status_code=503, detail="Bot control channel unavailable") from exc
     finally:
-        try:
-            writer.close()
-            await writer.wait_closed()
-        except Exception:
-            pass
+        if writer is not None:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
     try:
         return json.loads(raw.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
