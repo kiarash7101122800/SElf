@@ -1,0 +1,30 @@
+Telegram Selfbot 2.12.3 - Validation Report
+Date: 2026-08-05
+
+PASS: Python compileall for complete source tree
+PASS: keep_alive.sh shell syntax
+PASS: 30 focused unit/integration tests
+  - admin schema, roles, plans, balances, support, force join
+  - betting migration, atomic settlement, fee rules
+  - betting delivery idempotency, topic fallback, retry safety
+  - treasury/referral/rate-limit persistence
+  - activation reservation/refund idempotency
+  - duplicate phone rejection
+  - ISO expiration and fail-closed behavior
+  - cloud backup produces no local ZIP
+  - anti-delete directory is not created
+  - scheduled send is claimed once and becomes uncertain after stale state
+  - send queue shutdown resolves running and waiting futures
+
+STATIC MEDIA STORAGE CHECK
+PASS: No download_media call writes to a local path
+PASS: Image/audio/web outputs are processed through BytesIO
+PASS: External downloads use bounded streaming
+PASS: Legacy accounts.db is removed
+PASS: Deleted self-bots are not archived locally
+PASS: Legacy media migrator copies referenced files to Saved Messages before deletion
+
+LIMITATION
+A live Telegram login, real Saved Messages forwarding, network outage, and cPanel
+process lifecycle require valid Telegram credentials and were not executed in this
+offline build environment.

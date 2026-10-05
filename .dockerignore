@@ -18,5 +18,5 @@ __pycache__
 downloads/*
 logs/*
 data/*
+sessions/*
 !data/.gitkeep
-!data/action/.gitkeep

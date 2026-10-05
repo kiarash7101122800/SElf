@@ -13,7 +13,7 @@ node_modules/
 *.session-journal
 logs/
 downloads/
+sessions/
 data/*
 !data/.gitkeep
-!data/action/.gitkeep
 .DS_Store

@@ -1,3 +1,5 @@
 #!/bin/sh
 set -eu
-exec python app.py
+umask 077
+mkdir -p data/action downloads logs sessions
+exec python -u app.py
