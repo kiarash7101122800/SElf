@@ -1,6 +1,7 @@
+import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pyrogram.errors import PhotoCropSizeSmall
-from pyrogram import Client, filters , enums , emoji
+from pyrogram import Client, filters, enums, emoji
 from urllib.parse import quote
 from datetime import datetime
 from pytube import YouTube
@@ -13,15 +14,38 @@ import importlib
 import shutil
 import random
 import pytz
-import time
 import json
 import os
 
 
-api_id = 
-api_hash = ""
-bot = Client("my_account", api_id=api_id, api_hash=api_hash)
-admin = 'me'
+def _required_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"{name} is missing")
+    return value
+
+
+_api_id_raw = _required_env("API_ID")
+if not _api_id_raw.isdigit():
+    raise RuntimeError("API_ID must be numeric")
+
+api_id = int(_api_id_raw)
+api_hash = _required_env("API_HASH")
+
+_session_name = os.getenv("SESSION_NAME", "my_account").strip() or "my_account"
+_session_string = os.getenv("SESSION_STRING", "").strip()
+
+_client_kwargs = {
+    "api_id": api_id,
+    "api_hash": api_hash,
+}
+if _session_string:
+    _client_kwargs["session_string"] = _session_string
+
+bot = Client(_session_name, **_client_kwargs)
+
+_owner_raw = os.getenv("OWNER_ID", "me").strip() or "me"
+admin = int(_owner_raw) if _owner_raw.isdigit() else _owner_raw
 
 fonts = {
     'Font1' : { '0': '𝟎','1': '𝟏','2': '𝟐','3': '𝟑','4': '𝟒','5': '𝟓','6': '𝟔','7': '𝟕','8': '𝟖','9': '𝟗' },
@@ -125,69 +149,48 @@ async def onvideo(client, message) :
         pass
 
 
-async def TimeName():
-    with open("data/TimeName.txt", "r") as file:
-        TimeName = file.read()
-    if TimeName == "on" :
-        tz = pytz.timezone("Asia/Tehran")
-        now = datetime.now(tz)
-        if ( now.strftime("%S") == "00") :
+async def _update_timed_profile():
+    tz = pytz.timezone("Asia/Tehran")
+    now = datetime.now(tz)
+    number = now.strftime("%H:%M")
 
-            number = now.strftime("%H:%M")
-            with open("data/Font.txt", "r") as file2:
-                FONT = file2.read()
-            if FONT == "Random":
-                
-                try:
-                    selected_font = random.choice(list(fonts.keys()))
-                    tz = pytz.timezone("Asia/Tehran")
-                    now = datetime.now(tz)
-                    current_time = now.strftime("%H:%M")
+    try:
+        with open("data/TimeName.txt", "r", encoding="utf-8") as file:
+            time_name = file.read().strip()
+        with open("data/TimeBio.txt", "r", encoding="utf-8") as file:
+            time_bio = file.read().strip()
 
-                    converted_time = ''.join([fonts[selected_font].get(char, char) for char in current_time])
+        if time_name != "on" and time_bio != "on":
+            return
 
-                    await bot.update_profile(last_name=converted_time)
-                except :
-                    pass
-            else:
-                number_unicode = ''.join([fonts[FONT][c] if c in fonts[FONT] else c for c in str(number)])
-                await bot.update_profile(last_name=number_unicode)
+        with open("data/Font.txt", "r", encoding="utf-8") as file:
+            font_name = file.read().strip()
 
+        if font_name == "Random":
+            font_name = random.choice(list(fonts.keys()))
 
-async def TimeBio():
-    with open("data/TimeBio.txt", "r") as file:
-        TimeBio = file.read()
-    if TimeBio == "on" :
-        tz = pytz.timezone("Asia/Tehran")
-        now = datetime.now(tz)
-        if ( now.strftime("%S") == "00") :
+        font = fonts.get(font_name, fonts["Font1"])
+        number_unicode = "".join(font.get(char, char) for char in number)
 
-            number = now.strftime("%H:%M")
-            with open("data/Font.txt", "r") as file2:
-                FONT = file2.read()
-            if FONT == "Random":
-                
-                try:
-                    selected_font = random.choice(list(fonts.keys()))
-                    tz = pytz.timezone("Asia/Tehran")
-                    now = datetime.now(tz)
-                    current_time = now.strftime("%H:%M")
+        if time_name == "on":
+            await bot.update_profile(last_name=number_unicode)
 
-                    converted_time = ''.join([fonts[selected_font].get(char, char) for char in current_time])
-                except :
-                    pass
-                await bot.update_profile(bio="Time Now : "+converted_time)
+        if time_bio == "on":
+            await bot.update_profile(bio="Time Now : " + number_unicode)
+    except Exception as exc:
+        print(f"timed profile update failed: {exc}")
 
 
-            else:
-                number_unicode = ''.join([fonts[FONT][c] if c in fonts[FONT] else c for c in str(number)])
-                await bot.update_profile(bio="Time Now : "+number_unicode)
-
-
-
-scheduler = AsyncIOScheduler()
-scheduler.add_job(TimeName, "interval", seconds=1)
-scheduler.add_job(TimeBio, "interval", seconds=1)
+scheduler = AsyncIOScheduler(timezone="Asia/Tehran")
+scheduler.add_job(
+    _update_timed_profile,
+    "cron",
+    second=0,
+    id="timed_profile",
+    coalesce=True,
+    max_instances=1,
+    misfire_grace_time=30,
+)
 
 
 @bot.on_message(filters.user(admin))
@@ -608,7 +611,7 @@ async def admins(client , message):
 ◻️◻️◻️◻️◻️
                                 """ , message_id=message.id)
         
-        time.sleep(0.5)
+        await asyncio.sleep(0.5)
 
         await bot.edit_message_text(chat_id=message.chat.id , text="تمام" , message_id=message.id)
 
@@ -660,7 +663,7 @@ async def admins(client , message):
         text = result[1]
 
         url = f"https://haji-api.ir/text-to-voice/?text={text}&Character=DilaraNeural"
-        response = requests.get(url)  
+        response = await asyncio.to_thread(requests.get, url, timeout=20)  
 
         if response.status_code == 200:  
             content = response.content  
@@ -718,7 +721,7 @@ async def admins(client , message):
         text = result[1]
 
         url = f"https://haji-api.ir/Free-GPT3/?text={text}"
-        response = requests.get(url)  
+        response = await asyncio.to_thread(requests.get, url, timeout=20)  
 
         if response.status_code == 200:  
             content = response.content  
@@ -1214,35 +1217,35 @@ async def admins(client , message):
         bk14 = "\n🌙🌙🌙          🌙         🌙\n🌙         🌙      🌙       🌙\n🌙           🌙    🌙     🌙\n🌙        🌙       🌙   🌙\n🌙🌙🌙          🌙🌙\n🌙         🌙      🌙   🌙\n🌙           🌙    🌙      🌙\n🌙           🌙    🌙        🌙\n🌙        🌙       🌙          🌙\n🌙🌙🌙          🌙            🌙\n"
         bk15 = "\n🪐🪐🪐          🪐         🪐\n🪐         🪐      🪐       🪐\n🪐           🪐    🪐     🪐\n🪐        🪐       🪐   🪐\n🪐🪐🪐          🪐🪐\n🪐         🪐      🪐   🪐\n🪐           🪐    🪐      🪐\n🪐           🪐    🪐        🪐\n🪐        🪐       🪐          🪐\n🪐🪐🪐          🪐            🪐\n"
         await bot.edit_message_text(chat_id, msg_id, bk1)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk2)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk3)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk4)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk5)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk6)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk7)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk8)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk9)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk10)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk11)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk12)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk13)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk14)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, bk15)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id, msg_id, "کلا بکیرم")
 
 
@@ -1341,58 +1344,58 @@ async def admins(client , message):
 ⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️ 0%
 Loading
 """ , message_id=message.id)
-        time.sleep(.5)
+        await asyncio.sleep(.5)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 ⚪️⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️ 10%
 Loading . . .
 """ , message_id=message.id)
-        time.sleep(.3)
+        await asyncio.sleep(.3)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 ⚪️⚪️⚫️⚫️⚫️⚫️⚫️⚫️⚫️⚫️ 20%
 Loading
 """ , message_id=message.id)
 
-        time.sleep(.1)
+        await asyncio.sleep(.1)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 ⚪️⚪️⚪️⚫️⚫️⚫️⚫️⚫️⚫️⚫️ 30%
 Loading . . .
 """ , message_id=message.id)
-        time.sleep(1)
+        await asyncio.sleep(1)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 ⚪️⚪️⚪️⚪️⚫️⚫️⚫️⚫️⚫️⚫️ 40%
 Loading
 """ , message_id=message.id)
-        time.sleep(.8)
+        await asyncio.sleep(.8)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 ⚪️⚪️⚪️⚪️⚪️⚫️⚫️⚫️⚫️⚫️ 50%
 Loading . . .
 """ , message_id=message.id)
-        time.sleep(1.5)
+        await asyncio.sleep(1.5)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 ⚪️⚪️⚪️⚪️⚪️⚪️⚫️⚫️⚫️⚫️ 60%
 Loading
 """ , message_id=message.id)
-        time.sleep(.2)
+        await asyncio.sleep(.2)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 ⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚫️⚫️⚫️ 70%
 Loading
 """ , message_id=message.id)
-        time.sleep(.4)
+        await asyncio.sleep(.4)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 ⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚫️⚫️ 80%
 Loading
 """ , message_id=message.id)
-        time.sleep(.1)
+        await asyncio.sleep(.1)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 ⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚫️ 90%
 Loading
 """ , message_id=message.id)
-        time.sleep(2)
+        await asyncio.sleep(2)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 ⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️ 100%
 Loading
 """ , message_id=message.id)
-        time.sleep(.5)
+        await asyncio.sleep(.5)
         await bot.edit_message_text(chat_id=message.chat.id , text="""
 Finish
 """ , message_id=message.id)
@@ -1560,7 +1563,7 @@ Finish
                 else:
                     msg += text[i]
                 await bot.edit_message_text(chat_id = message.chat.id , message_id=message.id , text=msg , parse_mode=enums.ParseMode.HTML)
-                time.sleep(.2)
+                await asyncio.sleep(.2)
     except :
         pass
 
@@ -1640,6 +1643,114 @@ async def ReloadsFN(client , message):
 
 
 
-print('bot is runed')
-scheduler.start()
-bot.run()
+async def _control_reply(writer, payload):
+    writer.write((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
+    await writer.drain()
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except Exception:
+        pass
+
+
+async def _control_client(reader, writer):
+    try:
+        raw = await reader.readline()
+        if not raw:
+            return
+
+        command = json.loads(raw.decode("utf-8"))
+        op = command.get("op")
+
+        if op == "status":
+            await _control_reply(writer, {
+                "ok": True,
+                "connected": bool(bot.is_connected),
+            })
+            return
+
+        target = command.get("chat_id")
+        targets = target if isinstance(target, list) else [target]
+
+        if op == "send":
+            message_text = str(command.get("text", "")).strip()
+            if not target or not message_text:
+                await _control_reply(writer, {
+                    "ok": False,
+                    "error": "chat_id and text are required",
+                })
+                return
+
+            sent = 0
+            errors = []
+            for item in targets:
+                try:
+                    await bot.send_message(item, message_text)
+                    sent += 1
+                except Exception as exc:
+                    errors.append(str(exc))
+
+            await _control_reply(writer, {
+                "ok": sent == len(targets),
+                "sent": sent,
+                "total": len(targets),
+                "errors": errors[:5],
+            })
+            return
+
+        if op in {"block", "unblock"}:
+            done = 0
+            errors = []
+            for item in targets:
+                try:
+                    if op == "block":
+                        await bot.block_user(item)
+                    else:
+                        await bot.unblock_user(item)
+                    done += 1
+                except Exception as exc:
+                    errors.append(str(exc))
+
+            await _control_reply(writer, {
+                "ok": done == len(targets),
+                "done": done,
+                "total": len(targets),
+                "errors": errors[:5],
+            })
+            return
+
+        await _control_reply(writer, {"ok": False, "error": "unknown operation"})
+    except Exception as exc:
+        try:
+            await _control_reply(writer, {"ok": False, "error": str(exc)})
+        except Exception:
+            pass
+
+
+async def _main():
+    server = await asyncio.start_server(
+        _control_client,
+        "127.0.0.1",
+        8765,
+        limit=64 * 1024,
+    )
+
+    scheduler.start()
+
+    try:
+        await bot.start()
+        print("SElf is running")
+
+        async with server:
+            await asyncio.Event().wait()
+    finally:
+        server.close()
+        await server.wait_closed()
+        if bot.is_connected:
+            await bot.stop()
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+
+
+if __name__ == "__main__":
+    asyncio.run(_main())
