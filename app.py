@@ -105,7 +105,10 @@ showLogin();
 
 
 def client_ip(request: Request) -> str:
-    return request.headers.get("cf-connecting-ip") or request.client.host if request.client else "unknown"
+    forwarded = request.headers.get("cf-connecting-ip")
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else "unknown"
 
 
 def is_authenticated(request: Request) -> bool:
@@ -137,22 +140,6 @@ async def control(command: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         pass
     return json.loads(raw.decode("utf-8"))
-
-
-def start_bot() -> dict[str, Any]:
-    global bot_process
-    if bot_process and bot_process.returncode is None:
-        return {"ok": True, "already_running": True}
-
-    BOT_LOG.parent.mkdir(parents=True, exist_ok=True)
-    log = BOT_LOG.open("ab")
-    bot_process = asyncio.create_subprocess_exec(
-        "python", "bot_runner.py",
-        cwd=str(BASE_DIR),
-        stdout=log,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    return {"ok": True}
 
 
 async def start_bot_async() -> dict[str, Any]:
