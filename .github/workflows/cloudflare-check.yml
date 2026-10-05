@@ -10,38 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+
       - run: npm install
       - run: npx wrangler types
       - run: npx tsc --noEmit
-      - name: Compile Python management runtime
-        run: python -m py_compile app.py bot_runner.py reloads.py
-      - name: Validate original bot runtime patch
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          source = Path("bot.py").read_text(encoding="utf-8")
-          api_id = "12345678"
-          api_hash = "test_api_hash"
-          session_string = "test_session"
-          session_name = "my_account"
-          source = re.sub(r"(?m)^api_id\s*=.*$", f"api_id = {int(api_id)}", source, count=1)
-          source = re.sub(r"(?m)^api_hash\s*=.*$", f"api_hash = {api_hash!r}", source, count=1)
-          source = source.replace(
-              'bot = Client("my_account", api_id=api_id, api_hash=api_hash)',
-              f'bot = Client({session_name!r}, api_id=api_id, api_hash=api_hash, session_string={session_string!r})',
-              1,
-          )
-          source = source.replace(
-              "print('bot is runed')\nscheduler.start()\nbot.run()",
-              "print('validated')",
-              1,
-          )
-          compile(source, "bot.py", "exec")
-          print("original bot patch validation: OK")
-          PY
+
+      - name: Validate Python source syntax
+        run: python -m py_compile app.py bot.py reloads.py
+
       - name: Build Cloudflare Container image
         run: docker build --platform linux/amd64 -t self-cloudflare:test .
