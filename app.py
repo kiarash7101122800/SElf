@@ -21,10 +21,13 @@ CONTROL_HOST = os.getenv("CONTROL_HOST", "127.0.0.1")
 CONTROL_PORT = int(os.getenv("CONTROL_PORT", "8765"))
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 AUTO_START = os.getenv("AUTO_START_BOT", "true").lower() not in {"0", "false", "no", "off"}
+REQUIRED_RUNTIME_VARS = ("API_ID", "API_HASH", "OWNER_ID", "SESSION_STRING", "ADMIN_PASSWORD")
+MAX_LOG_BYTES = 5 * 1024 * 1024
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 bot_process: asyncio.subprocess.Process | None = None
+supervisor_task: asyncio.Task | None = None
 started_at = time.time()
 login_failures: dict[str, tuple[int, float]] = {}
 
@@ -111,6 +114,10 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def runtime_missing() -> list[str]:
+    return [name for name in REQUIRED_RUNTIME_VARS if not os.getenv(name, "").strip()]
+
+
 def is_authenticated(request: Request) -> bool:
     if not ADMIN_PASSWORD:
         return False
@@ -146,7 +153,20 @@ async def start_bot_async() -> dict[str, Any]:
     global bot_process
     if bot_process and bot_process.returncode is None:
         return {"ok": True, "already_running": True}
+
+    missing = runtime_missing()
+    if missing:
+        return {"ok": False, "error": "Missing runtime variables: " + ", ".join(missing)}
+
     BOT_LOG.parent.mkdir(parents=True, exist_ok=True)
+
+    if BOT_LOG.exists() and BOT_LOG.stat().st_size > MAX_LOG_BYTES:
+        rotated = BOT_LOG.with_name("bot.log.1")
+        try:
+            rotated.unlink(missing_ok=True)
+            BOT_LOG.replace(rotated)
+        except OSError:
+            BOT_LOG.write_bytes(b"")
     log = BOT_LOG.open("ab")
     try:
         bot_process = await asyncio.create_subprocess_exec(
@@ -173,14 +193,37 @@ async def stop_bot() -> dict[str, Any]:
     return {"ok": True}
 
 
+async def supervisor() -> None:
+    while True:
+        try:
+            await asyncio.sleep(20)
+            if AUTO_START and not runtime_missing():
+                if bot_process is None or bot_process.returncode is not None:
+                    await start_bot_async()
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            print(f"bot supervisor error: {exc}")
+
+
 @app.on_event("startup")
 async def startup() -> None:
-    if AUTO_START:
+    global supervisor_task
+    if AUTO_START and not runtime_missing():
         await start_bot_async()
+    supervisor_task = asyncio.create_task(supervisor())
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    global supervisor_task
+    if supervisor_task:
+        supervisor_task.cancel()
+        try:
+            await supervisor_task
+        except asyncio.CancelledError:
+            pass
+        supervisor_task = None
     await stop_bot()
 
 
@@ -241,10 +284,13 @@ async def logout():
 async def status(request: Request):
     require_auth(request)
     running = bool(bot_process and bot_process.returncode is None)
+    missing = runtime_missing()
     return {
         "ok": True,
         "bot_running": running,
         "uptime_seconds": int(time.time() - started_at),
+        "runtime_ready": not missing,
+        "missing_variables": missing,
         "api_configured": bool(os.getenv("API_ID") and os.getenv("API_HASH")),
         "session_configured": bool(os.getenv("SESSION_STRING")),
     }
