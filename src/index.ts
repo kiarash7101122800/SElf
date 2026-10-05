@@ -27,19 +27,12 @@ function securityHeaders(headers = new Headers()): Headers {
 export class SelfContainer extends DurableObject<Env> {
   private startPromise?: Promise<void>;
 
-  private get container() {
-    if (!this.container) {
-      throw new Error("Cloudflare Container binding is unavailable");
-    }
-    return this.container;
-  }
-
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
 
     if (ctx.container?.running) {
-      void ctx.blockConcurrencyWhile(() =>
-        ctx.container.setInactivityTimeout(INACTIVITY_MS),
+      void ctx.blockConcurrencyWhile(async () =>
+        ctx.container!.setInactivityTimeout(INACTIVITY_MS),
       );
     }
   }
@@ -60,8 +53,11 @@ export class SelfContainer extends DurableObject<Env> {
   }
 
   private async startAndWait(): Promise<void> {
-    if (this.container.running) {
-      await this.container.setInactivityTimeout(INACTIVITY_MS);
+    const container = this.ctx.container;
+    if (!container) throw new Error("Cloudflare Container binding is unavailable");
+
+    if (container.running) {
+      await container.setInactivityTimeout(INACTIVITY_MS);
       return;
     }
 
@@ -69,7 +65,7 @@ export class SelfContainer extends DurableObject<Env> {
 
     if (snapshot?.id) {
       try {
-        this.container.start({
+        container.start({
           containerSnapshot: snapshot,
           enableInternet: true,
           instance: "standard-1",
@@ -77,25 +73,25 @@ export class SelfContainer extends DurableObject<Env> {
         });
       } catch {
         await this.ctx.storage.delete("snapshot");
-        this.container.start({
-          image: this.container.images.base,
+        container.start({
+          image: container.images.base,
           enableInternet: true,
           instance: "standard-1",
           env: this.envVars(),
         });
       }
     } else {
-      this.container.start({
-        image: this.container.images.base,
+      container.start({
+        image: container.images.base,
         enableInternet: true,
         instance: "standard-1",
         env: this.envVars(),
       });
     }
 
-    await this.container.setInactivityTimeout(INACTIVITY_MS);
+    await container.setInactivityTimeout(INACTIVITY_MS);
 
-    const port = this.container.getTcpPort(8080);
+    const port = container.getTcpPort(8080);
     let lastError: unknown;
 
     for (let attempt = 0; attempt < 90; attempt += 1) {
@@ -130,14 +126,14 @@ export class SelfContainer extends DurableObject<Env> {
   async warm(): Promise<void> {
     await this.ensureStarted();
 
-    const response = await this.container
+    const response = await this.ctx.container
       .getTcpPort(8080)
       .fetch("http://container/health", {
         signal: AbortSignal.timeout(3000),
       });
 
     await response.body?.cancel();
-    await this.container.setInactivityTimeout(INACTIVITY_MS);
+    await container.setInactivityTimeout(INACTIVITY_MS);
   }
 
   async maintain(): Promise<void> {
@@ -152,10 +148,12 @@ export class SelfContainer extends DurableObject<Env> {
   }
 
   async saveSnapshot(): Promise<void> {
-    if (!this.container.running) return;
+    const container = this.ctx.container;
+    if (!container) return;
+    if (!container.running) return;
 
     try {
-      const snapshot = await this.container.snapshotContainer({
+      const snapshot = await container.snapshotContainer({
         name: "self-runtime",
       });
       await this.ctx.storage.put("snapshot", snapshot);
@@ -166,8 +164,8 @@ export class SelfContainer extends DurableObject<Env> {
   }
 
   async restart(): Promise<void> {
-    if (this.container.running) {
-      await this.container.signal(15);
+    if (container.running) {
+      await container.signal(15);
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
     await this.ctx.storage.delete("snapshot");
@@ -181,13 +179,15 @@ export class SelfContainer extends DurableObject<Env> {
 
     try {
       await this.ensureStarted();
+      const container = this.ctx.container;
+      if (!container) throw new Error("Cloudflare Container binding is unavailable");
 
       const url = new URL(request.url);
       url.protocol = "http:";
       url.host = "container";
 
       const forwarded = new Request(url.toString(), request);
-      const response = await this.container
+      const response = await this.ctx.container
         .getTcpPort(8080)
         .fetch(forwarded);
 
