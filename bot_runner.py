@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import re
-import signal
 from pathlib import Path
 
 
@@ -68,23 +67,32 @@ def patch_source(source: str) -> str:
     if not session_string:
         raise RuntimeError("SESSION_STRING is missing")
 
-    source = re.sub(
+    source, api_id_replacements = re.subn(
         r"(?m)^api_id\s*=.*$",
         f"api_id = {int(api_id)}",
         source,
         count=1,
     )
-    source = re.sub(
-        r'(?m)^api_hash\s*=.*$',
+    if api_id_replacements != 1:
+        raise RuntimeError("Could not patch api_id in original bot.py")
+
+    source, api_hash_replacements = re.subn(
+        r"(?m)^api_hash\s*=.*$",
         f"api_hash = {api_hash!r}",
         source,
         count=1,
     )
-    source = source.replace(
-        'bot = Client("my_account", api_id=api_id, api_hash=api_hash)',
-        f'bot = Client({session_name!r}, api_id=api_id, api_hash=api_hash, session_string={session_string!r})',
-        1,
+    if api_hash_replacements != 1:
+        raise RuntimeError("Could not patch api_hash in original bot.py")
+
+    client_marker = 'bot = Client("my_account", api_id=api_id, api_hash=api_hash)'
+    client_replacement = (
+        f'bot = Client({session_name!r}, api_id=api_id, '
+        f'api_hash=api_hash, session_string={session_string!r})'
     )
+    if client_marker not in source:
+        raise RuntimeError("Could not patch Telegram Client in original bot.py")
+    source = source.replace(client_marker, client_replacement, 1)
 
     old_tail = "print('bot is runed')\nscheduler.start()\nbot.run()"
     new_tail = '''
