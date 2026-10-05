@@ -62,7 +62,7 @@ export class SelfContainer extends DurableObject<Env> {
       return;
     }
 
-    const snapshot = await this.ctx.storage.get<{ id: string }>("snapshot");
+    const snapshot = await this.ctx.storage.get<ContainerSnapshot>("snapshot");
 
     if (snapshot?.id) {
       try {
