@@ -69,7 +69,7 @@ export class SelfContainer extends DurableObject<Env> {
         container.start({
           containerSnapshot: snapshot,
           enableInternet: true,
-          instance: "standard-1",
+          instance: "standard-2",
           env: this.envVars(),
         });
       } catch {
@@ -77,7 +77,7 @@ export class SelfContainer extends DurableObject<Env> {
         container.start({
           image: container.images.base,
           enableInternet: true,
-          instance: "standard-1",
+          instance: "standard-2",
           env: this.envVars(),
         });
       }
@@ -85,7 +85,7 @@ export class SelfContainer extends DurableObject<Env> {
       container.start({
         image: container.images.base,
         enableInternet: true,
-        instance: "standard-1",
+        instance: "standard-2",
         env: this.envVars(),
       });
     }
