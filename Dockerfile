@@ -12,7 +12,7 @@ COPY requirements.txt .
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements.txt
 
-COPY bot.py reloads.py bot_runner.py app.py start.sh ./
+COPY bot.py reloads.py app.py start.sh ./
 
 RUN mkdir -p data/action downloads logs \
     && chmod +x start.sh
