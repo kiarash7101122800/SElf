@@ -148,12 +148,15 @@ async def start_bot_async() -> dict[str, Any]:
         return {"ok": True, "already_running": True}
     BOT_LOG.parent.mkdir(parents=True, exist_ok=True)
     log = BOT_LOG.open("ab")
-    bot_process = await asyncio.create_subprocess_exec(
-        "python", "bot_runner.py",
-        cwd=str(BASE_DIR),
-        stdout=log,
-        stderr=asyncio.subprocess.STDOUT,
-    )
+    try:
+        bot_process = await asyncio.create_subprocess_exec(
+            "python", "bot.py",
+            cwd=str(BASE_DIR),
+            stdout=log,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    finally:
+        log.close()
     return {"ok": True}
 
 
@@ -307,8 +310,16 @@ async def api_logs(request: Request, lines: int = 120):
     lines = max(1, min(lines, 300))
     if not BOT_LOG.exists():
         return {"ok": True, "logs": ""}
-    data = BOT_LOG.read_text(encoding="utf-8", errors="replace").splitlines()
-    return {"ok": True, "logs": "\n".join(data[-lines:])}
+    try:
+        with BOT_LOG.open("rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 64 * 1024))
+            chunk = fh.read().decode("utf-8", errors="replace")
+        data = chunk.splitlines()
+        return {"ok": True, "logs": "\n".join(data[-lines:])}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 if __name__ == "__main__":
