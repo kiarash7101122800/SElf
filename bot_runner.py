@@ -165,7 +165,7 @@ async def _main():
         if bot.is_connected:
             await bot.stop()
 
-
+'''
 if __name__ == "__main__":
     source = BOT_SOURCE.read_text(encoding="utf-8")
     source = patch_source(source)
