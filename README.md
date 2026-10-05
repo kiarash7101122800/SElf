@@ -63,7 +63,7 @@ Cloudflare Workers Builds با هر push روی `main` دوباره Build/Deploy
 
 ## نگه‌داشتن Bot
 
-Worker هر ساعت یک بار Container را warm می‌کند تا به خاطر inactivity خاموش نشود. این کار فقط یک نگهداری سبک داخلی است و بسیار کمتر از 100,000 درخواست روزانه است.
+Durable Object با یک Alarm داخلی حدوداً هر ساعت Container را warm می‌کند تا به خاطر inactivity خاموش نشود. این نگهداری داخل معماری Cloudflare انجام می‌شود و پنل مرورگر هیچ polling دوره‌ای انجام نمی‌دهد.
 
 ## پایداری Session
 
