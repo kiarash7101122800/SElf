@@ -1870,6 +1870,22 @@ class AdvancedFeatureEngine:
         self.last_analog_clock_update = time.monotonic()
 
     @staticmethod
+    def draw_analog_clock(
+        source: str | Path,
+        target: str | Path,
+        now: datetime,
+    ) -> None:
+        """Render an analog clock onto an image file for API/test compatibility."""
+        source_path = Path(source)
+        target_path = Path(target)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        output = AdvancedFeatureEngine.draw_analog_clock_bytes(
+            source_path.read_bytes(),
+            now,
+        )
+        target_path.write_bytes(output.getvalue())
+
+    @staticmethod
     def draw_analog_clock_bytes(source: bytes, now: datetime) -> io.BytesIO:
         with Image.open(io.BytesIO(source)) as original:
             image = original.convert("RGB")
